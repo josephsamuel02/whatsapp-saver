@@ -1,12 +1,12 @@
-import React from 'react';
-import { View, FlatList, Pressable, Image, Text, StyleSheet, Dimensions } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { THEME } from '../constants/theme';
-import type { StatusFile } from '../lib/statusService';
+import React from "react";
+import { View, FlatList, Pressable, Image, Text, StyleSheet, Dimensions } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { THEME } from "../constants/theme";
+import type { StatusFile } from "../lib/statusService";
 
 const GAP = 2;
 const COLS = 3;
-const ITEM = (Dimensions.get('window').width - GAP * (COLS - 1)) / COLS;
+const ITEM = (Dimensions.get("window").width - GAP * (COLS - 1)) / COLS;
 
 export function StatusGrid({
   data,
@@ -41,7 +41,7 @@ export function StatusGrid({
           hitSlop={8}
         >
           <Image source={{ uri: item.uri }} style={styles.thumb} />
-          {item.type === 'video' && (
+          {item.type === "video" && (
             <View style={styles.videoBadge}>
               <Ionicons name="play" size={14} color="#fff" />
             </View>
@@ -53,20 +53,25 @@ export function StatusGrid({
 }
 
 const styles = StyleSheet.create({
-  cell: { width: ITEM, height: ITEM, backgroundColor: '#ddd', overflow: 'hidden' },
-  thumb: { width: '100%', height: '100%' },
+  cell: { width: ITEM, height: ITEM, backgroundColor: "#ddd", overflow: "hidden" },
+  thumb: { width: "100%", height: "100%" },
   videoBadge: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 6,
     right: 6,
-    backgroundColor: 'rgba(0,0,0,0.65)',
+    backgroundColor: "rgba(0,0,0,0.65)",
     borderRadius: 12,
     width: 22,
     height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32, gap: 8 },
-  emptyTitle: { fontSize: 18, fontWeight: '700', color: THEME.colors.text },
-  emptySub: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: 'center', lineHeight: 20 },
+  empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 32, gap: 8 },
+  emptyTitle: { fontSize: 18, fontWeight: "700", color: THEME.colors.text },
+  emptySub: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
 });

@@ -1,12 +1,21 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Platform, RefreshControl, ScrollView, Pressable, Linking } from 'react-native';
-import { useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
-import * as MediaLibrary from 'expo-media-library';
-import { THEME } from '../../constants/theme';
-import { listStatuses, StatusFile } from '../../lib/statusService';
-import { StatusGrid } from '../../components/StatusGrid';
-import { PreviewModal } from '../../components/PreviewModal';
+import React, { useCallback, useState } from "react";
+import {
+  View,
+  Text,
+  StyleSheet,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  Pressable,
+  Linking,
+} from "react-native";
+import { useFocusEffect } from "expo-router";
+import { Ionicons } from "@expo/vector-icons";
+import * as MediaLibrary from "expo-media-library";
+import { THEME } from "../../constants/theme";
+import { listStatuses, StatusFile } from "../../lib/statusService";
+import { StatusGrid } from "../../components/StatusGrid";
+import { PreviewModal } from "../../components/PreviewModal";
 
 export default function ImagesScreen() {
   const [files, setFiles] = useState<StatusFile[]>([]);
@@ -16,7 +25,7 @@ export default function ImagesScreen() {
   const [loading, setLoading] = useState(true);
 
   async function load() {
-    if (Platform.OS !== 'android') {
+    if (Platform.OS !== "android") {
       setLoading(false);
       return;
     }
@@ -31,11 +40,15 @@ export default function ImagesScreen() {
       return;
     }
 
-    setFiles(listStatuses('image'));
+    setFiles(listStatuses("image"));
     setLoading(false);
   }
 
-  useFocusEffect(useCallback(() => { load(); }, []));
+  useFocusEffect(
+    useCallback(() => {
+      load();
+    }, []),
+  );
 
   async function onRefresh() {
     setRefreshing(true);
@@ -57,7 +70,7 @@ export default function ImagesScreen() {
     }
   }
 
-  if (Platform.OS !== 'android') {
+  if (Platform.OS !== "android") {
     return (
       <View style={s.center}>
         <Ionicons name="phone-portrait-outline" size={48} color={THEME.colors.textMuted} />
@@ -73,7 +86,9 @@ export default function ImagesScreen() {
         <Ionicons name="folder-open-outline" size={48} color={THEME.colors.textMuted} />
         <Text style={s.title}>Storage permission needed</Text>
         <Text style={s.sub}>Allow access to read WhatsApp statuses from your device.</Text>
-        <Pressable onPress={requestPerm} style={s.btn}><Text style={s.btnText}>Allow Access</Text></Pressable>
+        <Pressable onPress={requestPerm} style={s.btn}>
+          <Text style={s.btnText}>Allow Access</Text>
+        </Pressable>
       </View>
     );
   }
@@ -89,13 +104,32 @@ export default function ImagesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.colors.primary} />}>
+      <ScrollView
+        contentContainerStyle={{ flexGrow: 1 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor={THEME.colors.primary}
+          />
+        }
+      >
         <View style={s.hint}>
-          <Ionicons name="information-circle-outline" size={16} color={THEME.colors.textSecondary} />
-          <Text style={s.hintText}>Open WhatsApp and view a status first — then pull to refresh.</Text>
+          <Ionicons
+            name="information-circle-outline"
+            size={16}
+            color={THEME.colors.textSecondary}
+          />
+          <Text style={s.hintText}>
+            Open WhatsApp and view a status first — then pull to refresh.
+          </Text>
         </View>
         <View style={{ flex: 1 }}>
-          <StatusGrid data={files} onPress={setSelected} emptyText="No image statuses found. Open WhatsApp or WhatsApp Business, view a status, then pull to refresh." />
+          <StatusGrid
+            data={files}
+            onPress={setSelected}
+            emptyText="No image statuses found. Open WhatsApp or WhatsApp Business, view a status, then pull to refresh."
+          />
         </View>
       </ScrollView>
       <PreviewModal file={selected} onClose={() => setSelected(null)} />
@@ -104,11 +138,39 @@ export default function ImagesScreen() {
 }
 
 const s = StyleSheet.create({
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 10, backgroundColor: THEME.colors.background },
-  title: { fontSize: 18, fontWeight: '700', color: THEME.colors.text },
-  sub: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: 'center', lineHeight: 20 },
-  btn: { marginTop: 12, backgroundColor: THEME.colors.primary, paddingHorizontal: 24, paddingVertical: 12, borderRadius: 24 },
-  btnText: { color: '#fff', fontWeight: '700' },
-  hint: { flexDirection: 'row', gap: 6, alignItems: 'center', backgroundColor: '#fff', margin: 12, padding: 12, borderRadius: 12, borderWidth: 1, borderColor: THEME.colors.border },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    gap: 10,
+    backgroundColor: THEME.colors.background,
+  },
+  title: { fontSize: 18, fontWeight: "700", color: THEME.colors.text },
+  sub: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  btn: {
+    marginTop: 12,
+    backgroundColor: THEME.colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 24,
+  },
+  btnText: { color: "#fff", fontWeight: "700" },
+  hint: {
+    flexDirection: "row",
+    gap: 6,
+    alignItems: "center",
+    backgroundColor: "#fff",
+    margin: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+  },
   hintText: { flex: 1, fontSize: 12, color: THEME.colors.textSecondary, lineHeight: 16 },
 });
