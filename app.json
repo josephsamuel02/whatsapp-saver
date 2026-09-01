@@ -24,7 +24,7 @@
     "android": {
       "package": "com.statussaver.app",
       "adaptiveIcon": {
-        "foregroundImage": "./assets/icon.png",
+        "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#075E54"
       },
       "permissions": [
@@ -37,7 +37,7 @@
       ]
     },
     "web": {
-      "favicon": "./assets/icon.png",
+      "favicon": "./assets/favicon.png",
       "bundler": "metro"
     },
     "plugins": [
