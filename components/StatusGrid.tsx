@@ -34,7 +34,12 @@ export function StatusGrid({
       contentContainerStyle={{ gap: GAP, paddingBottom: 24 }}
       columnWrapperStyle={{ gap: GAP }}
       renderItem={({ item }) => (
-        <Pressable onPress={() => onPress(item)} style={styles.cell}>
+        <Pressable
+          onPress={() => onPress(item)}
+          style={styles.cell}
+          accessibilityRole="button"
+          hitSlop={8}
+        >
           <Image source={{ uri: item.uri }} style={styles.thumb} />
           {item.type === 'video' && (
             <View style={styles.videoBadge}>

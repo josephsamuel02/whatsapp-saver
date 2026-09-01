@@ -13,22 +13,48 @@ export default function VideosScreen() {
   const [perm, setPerm] = useState<any | null>(null);
   const [selected, setSelected] = useState<StatusFile | null>(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   async function load() {
-    if (Platform.OS !== 'android') return;
+    if (Platform.OS !== 'android') {
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
     const p = await MediaLibrary.getPermissionsAsync();
     setPerm(p);
-    if (!p.granted) return;
+
+    if (!p.granted) {
+      setFiles([]);
+      setLoading(false);
+      return;
+    }
+
     setFiles(listStatuses('video'));
+    setLoading(false);
   }
 
   useFocusEffect(useCallback(() => { load(); }, []));
-  async function onRefresh() { setRefreshing(true); await load(); setRefreshing(false); }
+
+  async function onRefresh() {
+    setRefreshing(true);
+    await load();
+    setRefreshing(false);
+  }
+
   async function requestPerm() {
     const r = await MediaLibrary.requestPermissionsAsync();
     setPerm(r);
-    if (r.granted) load();
-    else if (!r.canAskAgain) Linking.openSettings();
+
+    if (r.granted) {
+      await load();
+      return;
+    }
+
+    if (!r.canAskAgain) {
+      Linking.openSettings();
+    }
   }
 
   if (Platform.OS !== 'android') {
@@ -51,6 +77,15 @@ export default function VideosScreen() {
     );
   }
 
+  if (loading) {
+    return (
+      <View style={s.center}>
+        <Ionicons name="videocam-outline" size={40} color={THEME.colors.textMuted} />
+        <Text style={s.title}>Loading video statuses…</Text>
+      </View>
+    );
+  }
+
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={THEME.colors.primary} />}>
@@ -59,7 +94,7 @@ export default function VideosScreen() {
           <Text style={s.hintText}>Videos are larger — allow a second to load. Pull to refresh.</Text>
         </View>
         <View style={{ flex: 1 }}>
-          <StatusGrid data={files} onPress={setSelected} emptyText="No video statuses found. View a status in WhatsApp, then pull to refresh." />
+          <StatusGrid data={files} onPress={setSelected} emptyText="No video statuses found. Open WhatsApp or WhatsApp Business, view a status, then pull to refresh." />
         </View>
       </ScrollView>
       <PreviewModal file={selected} onClose={() => setSelected(null)} />

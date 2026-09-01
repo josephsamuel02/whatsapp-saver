@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, StyleSheet, Pressable, Image, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -9,10 +9,19 @@ import { saveToGallery, shareFile, shareToWhatsApp } from '../lib/statusService'
 export function PreviewModal({ file, onClose }: { file: StatusFile | null; onClose: () => void }) {
   const [saving, setSaving] = useState(false);
 
-  // Video player guard: only create player for actual video files
   const player = file?.type === 'video' ? useVideoPlayer(file.uri, (p: any) => {
     p.loop = false;
+    p.muted = false;
   }) : null;
+
+  useEffect(() => {
+    if (player && file?.type === 'video') {
+      player.play();
+      return () => {
+        player.pause();
+      };
+    }
+  }, [player, file?.type, file?.uri]);
 
   if (!file) return null;
 
