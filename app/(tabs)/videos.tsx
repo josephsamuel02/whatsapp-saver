@@ -1,170 +1,157 @@
 import React, { useCallback, useState } from "react";
-import {
-  View,
-  Text,
-  StyleSheet,
-  Platform,
-  RefreshControl,
-  ScrollView,
-  Pressable,
-  Linking,
-} from "react-native";
+import { View, Text, StyleSheet, Platform, Pressable, Alert, ActivityIndicator } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as MediaLibrary from "expo-media-library";
 import { THEME } from "../../constants/theme";
-import { listStatuses, StatusFile } from "../../lib/statusService";
+import { StatusFile, saveMultipleToGallery } from "../../lib/statusService";
 import { StatusGrid } from "../../components/StatusGrid";
 import { PreviewModal } from "../../components/PreviewModal";
+import { PermissionGate } from "../../components/PermissionGate";
+import { useStatuses } from "../../lib/useStatuses";
 
 export default function VideosScreen() {
-  const [files, setFiles] = useState<StatusFile[]>([]);
-  const [perm, setPerm] = useState<any | null>(null);
+  const { files, loading, refreshing, refresh } = useStatuses("video");
   const [selected, setSelected] = useState<StatusFile | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [selection, setSelection] = useState<Set<string>>(new Set());
+  const [savingAll, setSavingAll] = useState(false);
+  const [hasMediaPerm, setHasMediaPerm] = useState<boolean | null>(null);
 
-  async function load() {
-    if (Platform.OS !== "android") {
-      setLoading(false);
-      return;
-    }
+  const checkPerm = useCallback(async () => {
+    if (Platform.OS !== "android") { setHasMediaPerm(true); return; }
+    try { const p = await MediaLibrary.getPermissionsAsync(); setHasMediaPerm(!!p.granted); } catch { setHasMediaPerm(false); }
+  }, []);
+  useFocusEffect(useCallback(() => { checkPerm(); refresh(); }, [checkPerm]));
 
-    setLoading(true);
-    const p = await MediaLibrary.getPermissionsAsync();
-    setPerm(p);
+  const isSelection = selection.size > 0;
+  const toggleSelect = (f: StatusFile) => {
+    setSelection((prev) => {
+      const n = new Set(prev);
+      if (n.has(f.uri)) n.delete(f.uri); else n.add(f.uri);
+      return n;
+    });
+  };
+  const clearSelection = () => setSelection(new Set());
+  const selectedFiles = files.filter((f) => selection.has(f.uri));
 
-    if (!p.granted) {
-      setFiles([]);
-      setLoading(false);
-      return;
-    }
-
-    setFiles(listStatuses("video"));
-    setLoading(false);
+  async function handleSaveSelected() {
+    if (!selectedFiles.length) return;
+    setSavingAll(true);
+    try {
+      const r = await saveMultipleToGallery(selectedFiles);
+      Alert.alert("Saved", `${r.saved} video${r.saved !== 1 ? "s" : ""} saved to Gallery • Album: Status Saver`);
+      clearSelection();
+    } catch (e: any) { Alert.alert("Save failed", e?.message ?? "Try again"); }
+    finally { setSavingAll(false); }
   }
-
-  useFocusEffect(
-    useCallback(() => {
-      load();
-    }, []),
-  );
-
-  async function onRefresh() {
-    setRefreshing(true);
-    await load();
-    setRefreshing(false);
-  }
-
-  async function requestPerm() {
-    const r = await MediaLibrary.requestPermissionsAsync();
-    setPerm(r);
-
-    if (r.granted) {
-      await load();
-      return;
-    }
-
-    if (!r.canAskAgain) {
-      Linking.openSettings();
-    }
+  async function handleSaveAll() {
+    if (!files.length) return;
+    setSavingAll(true);
+    try {
+      const r = await saveMultipleToGallery(files);
+      Alert.alert("Saved", `${r.saved} video${r.saved !== 1 ? "s" : ""} saved`);
+    } catch (e: any) { Alert.alert("Save failed", e?.message ?? "Check gallery permission"); }
+    finally { setSavingAll(false); }
   }
 
   if (Platform.OS !== "android") {
     return (
       <View style={s.center}>
-        <Ionicons name="phone-portrait-outline" size={48} color={THEME.colors.textMuted} />
-        <Text style={s.title}>Available on Android only</Text>
-        <Text style={s.sub}>iOS cannot access WhatsApp files.</Text>
-      </View>
-    );
-  }
-  if (perm && !perm.granted) {
-    return (
-      <View style={s.center}>
-        <Ionicons name="folder-open-outline" size={48} color={THEME.colors.textMuted} />
-        <Text style={s.title}>Storage permission needed</Text>
-        <Text style={s.sub}>Allow access to read WhatsApp statuses.</Text>
-        <Pressable onPress={requestPerm} style={s.btn}>
-          <Text style={s.btnText}>Allow Access</Text>
-        </Pressable>
-      </View>
-    );
-  }
-
-  if (loading) {
-    return (
-      <View style={s.center}>
-        <Ionicons name="videocam-outline" size={40} color={THEME.colors.textMuted} />
-        <Text style={s.title}>Loading video statuses…</Text>
+        <View style={s.centerIcon}><Ionicons name="videocam-outline" size={42} color={THEME.colors.primary} /></View>
+        <Text style={s.title}>Android only</Text>
+        <Text style={s.sub}>Video statuses live in WhatsApp’s private folder which iOS blocks. Use Android to save them.</Text>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      <ScrollView
-        contentContainerStyle={{ flexGrow: 1 }}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={THEME.colors.primary}
-          />
-        }
-      >
-        <View style={s.hint}>
-          <Ionicons
-            name="information-circle-outline"
-            size={16}
-            color={THEME.colors.textSecondary}
-          />
-          <Text style={s.hintText}>
-            Videos are larger — allow a second to load. Pull to refresh.
-          </Text>
+      <View style={s.statsCard}>
+        <View style={s.statRow}>
+          <View style={[s.statIconBox, { backgroundColor: THEME.colors.waTeal }]}><Ionicons name="videocam" size={16} color="#fff" /></View>
+          <View style={{ flex: 1 }}>
+            <Text style={s.statValue}>{loading ? "—" : `${files.length} videos`}</Text>
+            <Text style={s.statLabel}>MP4 • 3GP • MOV • MKV  •  Repost directly to WhatsApp</Text>
+          </View>
+          <Pressable onPress={() => refresh()} style={s.refreshBtn}><Ionicons name="refresh" size={16} color={THEME.colors.primary} /><Text style={s.refreshText}>Refresh</Text></Pressable>
         </View>
-        <View style={{ flex: 1 }}>
+        {files.length > 1 && (
+          <View style={s.batchBar}>
+            {isSelection ? (
+              <>
+                <Pressable onPress={clearSelection} style={s.batchSecondary}><Text style={s.batchSecondaryText}>Clear ({selection.size})</Text></Pressable>
+                <Pressable onPress={handleSaveSelected} disabled={savingAll} style={s.batchPrimary}>
+                  {savingAll ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="download" size={14} color="#fff" />}
+                  <Text style={s.batchPrimaryText}>Save Selected</Text>
+                </Pressable>
+              </>
+            ) : (
+              <>
+                <Text style={s.batchHint}>Long-press to multi-select • Tap to preview with sound</Text>
+                <Pressable onPress={handleSaveAll} disabled={savingAll || files.length === 0} style={[s.batchPrimary, (savingAll || files.length === 0) && { opacity: 0.6 }]}>
+                  {savingAll ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="download-outline" size={14} color="#fff" />}
+                  <Text style={s.batchPrimaryText}>Save All</Text>
+                </Pressable>
+              </>
+            )}
+          </View>
+        )}
+      </View>
+
+      {files.length === 0 && !loading ? <PermissionGate onGranted={refresh} /> : null}
+
+      {files.length > 0 && hasMediaPerm === false && (
+        <View style={s.warnCard}>
+          <Ionicons name="alert-circle" size={16} color="#B7791F" />
+          <Text style={s.warnText}>Gallery permission needed before saving videos.</Text>
+        </View>
+      )}
+
+      <View style={{ flex: 1 }}>
+        {loading ? (
+          <View style={s.loadingWrap}>
+            <ActivityIndicator size="large" color={THEME.colors.primary} />
+            <Text style={s.loadingText}>Scanning for videos…</Text>
+          </View>
+        ) : (
           <StatusGrid
             data={files}
             onPress={setSelected}
-            emptyText="No video statuses found. Open WhatsApp or WhatsApp Business, view a status, then pull to refresh."
+            onLongPress={toggleSelect}
+            emptyText="No video statuses found. View a video status in WhatsApp or WhatsApp Business, then pull to refresh. Videos need a second to cache — try again if empty."
+            refreshing={refreshing}
+            onRefresh={refresh}
+            selectedIds={selection}
+            onToggleSelect={toggleSelect}
+            selectionMode={isSelection}
           />
-        </View>
-      </ScrollView>
+        )}
+      </View>
       <PreviewModal file={selected} onClose={() => setSelected(null)} />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  center: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: 24,
-    gap: 10,
-    backgroundColor: THEME.colors.background,
-  },
-  title: { fontSize: 18, fontWeight: "700", color: THEME.colors.text },
-  sub: { fontSize: 14, color: THEME.colors.textSecondary, textAlign: "center" },
-  btn: {
-    marginTop: 12,
-    backgroundColor: THEME.colors.primary,
-    paddingHorizontal: 24,
-    paddingVertical: 12,
-    borderRadius: 24,
-  },
-  btnText: { color: "#fff", fontWeight: "700" },
-  hint: {
-    flexDirection: "row",
-    gap: 6,
-    alignItems: "center",
-    backgroundColor: "#fff",
-    margin: 12,
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: THEME.colors.border,
-  },
-  hintText: { flex: 1, fontSize: 12, color: THEME.colors.textSecondary },
+  statsCard: { margin: 12, marginBottom: 6, backgroundColor: "#fff", borderRadius: 16, padding: 12, gap: 10, borderWidth: 1, borderColor: THEME.colors.border },
+  statRow: { flexDirection: "row", alignItems: "center", gap: 10 },
+  statIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: THEME.colors.primary, alignItems: "center", justifyContent: "center" },
+  statValue: { fontSize: 14, fontWeight: "800", color: THEME.colors.text },
+  statLabel: { fontSize: 11, color: THEME.colors.textSecondary, marginTop: 1 },
+  refreshBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#E7F8EC", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "#D0F0D8" },
+  refreshText: { fontSize: 12, fontWeight: "800", color: THEME.colors.primary },
+  batchBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: THEME.colors.divider, marginTop: 2 },
+  batchHint: { flex: 1, fontSize: 11.5, color: THEME.colors.textMuted, fontWeight: "600" },
+  batchPrimary: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: THEME.colors.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999 },
+  batchPrimaryText: { color: "#fff", fontWeight: "800", fontSize: 12.5 },
+  batchSecondary: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: THEME.colors.border, backgroundColor: "#fff" },
+  batchSecondaryText: { color: THEME.colors.text, fontWeight: "700", fontSize: 12.5 },
+  warnCard: { flexDirection: "row", gap: 8, alignItems: "center", marginHorizontal: 12, backgroundColor: "#FFF7E6", borderWidth: 1, borderColor: "#F9E0A2", padding: 10, borderRadius: 12 },
+  warnText: { flex: 1, fontSize: 11.5, color: "#7A5A12" },
+  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 28 },
+  loadingText: { fontSize: 15, fontWeight: "800", color: THEME.colors.text },
+  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 10, backgroundColor: THEME.colors.background },
+  centerIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#E7F8EC", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#D0F0D8" },
+  title: { fontSize: 18, fontWeight: "800", color: THEME.colors.text },
+  sub: { fontSize: 13, color: THEME.colors.textSecondary, textAlign: "center", lineHeight: 19 },
 });
