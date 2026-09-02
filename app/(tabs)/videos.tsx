@@ -66,12 +66,14 @@ export default function VideosScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
+      {hasMediaPerm === false ? <PermissionGate onGranted={() => { checkPerm(); refresh(); }} /> : null}
+
       <View style={s.statsCard}>
         <View style={s.statRow}>
           <View style={[s.statIconBox, { backgroundColor: THEME.colors.waTeal }]}><Ionicons name="videocam" size={16} color="#fff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={s.statValue}>{loading ? "—" : `${files.length} videos`}</Text>
-            <Text style={s.statLabel}>MP4 • 3GP • MOV • MKV  •  Repost directly to WhatsApp</Text>
+            <Text style={s.statLabel}>MP4 • 3GP • MOV • MKV • Business & WhatsApp</Text>
           </View>
           <Pressable onPress={() => refresh()} style={s.refreshBtn}><Ionicons name="refresh" size={16} color={THEME.colors.primary} /><Text style={s.refreshText}>Refresh</Text></Pressable>
         </View>
@@ -97,15 +99,6 @@ export default function VideosScreen() {
           </View>
         )}
       </View>
-
-      {files.length === 0 && !loading ? <PermissionGate onGranted={refresh} /> : null}
-
-      {files.length > 0 && hasMediaPerm === false && (
-        <View style={s.warnCard}>
-          <Ionicons name="alert-circle" size={16} color="#B7791F" />
-          <Text style={s.warnText}>Gallery permission needed before saving videos.</Text>
-        </View>
-      )}
 
       <View style={{ flex: 1 }}>
         {loading ? (

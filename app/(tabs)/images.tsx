@@ -68,13 +68,16 @@ export default function ImagesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
+      {/* Permission gate - shown instantly if not granted, before/during scan */}
+      {hasMediaPerm === false ? <PermissionGate onGranted={() => { checkPerm(); refresh(); }} /> : null}
+
       {/* Stats header */}
       <View style={s.statsCard}>
         <View style={s.statRow}>
           <View style={s.statIconBox}><Ionicons name="images" size={16} color="#fff" /></View>
           <View style={{ flex: 1 }}>
             <Text style={s.statValue}>{loading ? "—" : `${files.length} images`}</Text>
-            <Text style={s.statLabel}>Auto-detects WhatsApp, Business, GB, FM & more • Pull to refresh</Text>
+            <Text style={s.statLabel}>WhatsApp & Business • Auto scan</Text>
           </View>
           <Pressable onPress={() => refresh()} style={s.refreshBtn}>
             <Ionicons name="refresh" size={16} color={THEME.colors.primary} />
@@ -105,29 +108,19 @@ export default function ImagesScreen() {
         )}
       </View>
 
-      {files.length === 0 && !loading ? <PermissionGate onGranted={refresh} /> : null}
-
-      {/* Helper hint when got files but media permission missing for saving */}
-      {files.length > 0 && hasMediaPerm === false && (
-        <View style={s.warnCard}>
-          <Ionicons name="alert-circle" size={16} color="#B7791F" />
-          <Text style={s.warnText}>Allow gallery permission to save — tap “Grant Statuses Folder Access” then also allow Photos when saving.</Text>
-        </View>
-      )}
-
       <View style={{ flex: 1 }}>
         {loading ? (
           <View style={s.loadingWrap}>
             <ActivityIndicator size="large" color={THEME.colors.primary} />
             <Text style={s.loadingText}>Scanning WhatsApp folders…</Text>
-            <Text style={s.loadingSub}>Checking 60+ status locations + granted folders</Text>
+            <Text style={s.loadingSub}>Checking official .Statuses folders</Text>
           </View>
         ) : (
           <StatusGrid
             data={files}
             onPress={setSelected}
             onLongPress={toggleSelect}
-            emptyText="No image statuses found. Open WhatsApp or WhatsApp Business, view a status, then return and tap Refresh. If you use GBWhatsApp/FMWhatsApp, make sure you’ve granted the .Statuses folder above."
+            emptyText="No image statuses found. Open WhatsApp or WhatsApp Business, view a status, then return and tap Refresh."
             refreshing={refreshing}
             onRefresh={refresh}
             selectedIds={selection}

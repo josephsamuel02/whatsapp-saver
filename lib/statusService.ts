@@ -46,86 +46,54 @@ function labelFromPath(p: string): string {
   return "WhatsApp";
 }
 
-// ─── Exhaustive statuses locations ─────────────────────────────────────────
-// Covers: legacy .Statuses, new Statuses (WhatsApp removed dot on some builds),
-// scoped Android/media, Android/data, sdcard alias, dual-app 10/999,
-// popular mods, plus temporary cache locations where WhatsApp buffers viewed statuses
+// ─── Prioritized status locations ─────────────────────────────────────────
+// Prioritized to canonical Android paths first for instant permission + fast scan.
+// Covers both .Statuses and Statuses, WhatsApp + WhatsApp Business, legacy + scoped.
 function buildStatusDirs(): string[] {
-  const bases = [
-    "/storage/emulated/0",
-    "/sdcard",
-    "/storage/emulated/10",
-    "/storage/emulated/999",
-    "/storage/sdcard0",
-    "/mnt/sdcard",
-    "/data/media/0",
-  ];
+  const bases = ["/storage/emulated/0", "/sdcard"];
+  const statusNames = [".Statuses", "Statuses"];
 
-  const variants: Array<{ folder: string; pkg: string | null }> = [
-    { folder: "WhatsApp", pkg: "com.whatsapp" },
-    { folder: "WhatsApp Business", pkg: "com.whatsapp.w4b" },
-    { folder: "GBWhatsApp", pkg: "com.gbwhatsapp" },
-    { folder: "GBWhatsApp", pkg: "com.whatsapp.gb" },
-    { folder: "YoWhatsApp", pkg: "com.yowa" },
-    { folder: "YoWhatsApp", pkg: "com.yowhatsapp" },
-    { folder: "FMWhatsApp", pkg: "com.fmwhatsapp" },
-    { folder: "FMWhatsApp", pkg: "com.fmwhatsapps" },
-    { folder: "OGWhatsApp", pkg: "com.ogwhatsapp" },
-    { folder: "WhatsApp Plus", pkg: "com.plus.whatsapp" },
-    { folder: "Aero WhatsApp", pkg: "com.aero.whatsapp" },
-    { folder: "MBWhatsApp", pkg: "com.mbwhatsapp" },
-    { folder: "NSWhatsApp", pkg: "com.nswhatsapp" },
-  ];
+  const dirs: string[] = [];
 
-  const statusNames = [".Statuses", "Statuses"]; // dot and non-dot (WhatsApp changed in 2023-24 on some devices)
-
-  const dirs = new Set<string>();
+  function add(p: string) {
+    if (!dirs.includes(p)) dirs.push(p);
+  }
 
   for (const base of bases) {
-    for (const v of variants) {
-      for (const sName of statusNames) {
-        // Legacy: /sdcard/{App}/Media/.Statuses and /Statuses
-        dirs.add(`${base}/${v.folder}/Media/${sName}`);
-        // Root hidden: /sdcard/{App}/.Statuses
-        dirs.add(`${base}/${v.folder}/${sName}`);
-        // Scoped: /Android/media/{pkg}/{App}/Media/.Statuses
-        if (v.pkg) {
-          dirs.add(`${base}/Android/media/${v.pkg}/${v.folder}/Media/${sName}`);
-          dirs.add(`${base}/Android/media/${v.pkg}/Media/${sName}`);
-          dirs.add(`${base}/Android/media/${v.pkg}/${sName}`);
-          // Private app storage (pre-Android 10 fallback)
-          dirs.add(`${base}/Android/data/${v.pkg}/Media/${sName}`);
-          dirs.add(`${base}/Android/data/${v.pkg}/cache/${sName}`);
-          dirs.add(`${base}/Android/data/${v.pkg}/files/${sName}`);
-          dirs.add(`${base}/Android/data/${v.pkg}/files/Media/${sName}`);
-          // Cache temp buffers where viewed statuses are temporarily held before moving to .Statuses
-          dirs.add(`${base}/Android/data/${v.pkg}/cache`);
-          dirs.add(`${base}/Android/data/${v.pkg}/files/.StatusesCache`);
-        }
-      }
-      // WhatsApp internal temp cache (accessible via external on some OEMs)
-      dirs.add(`${base}/${v.folder}/cache`);
-      dirs.add(`${base}/${v.folder}/Media/.StatusesCache`);
-      dirs.add(`${base}/${v.folder}/.cache`);
-    }
-    // Canonical official paths (Android 11+)
-    for (const sName of statusNames) {
-      dirs.add(`${base}/Android/media/com.whatsapp/WhatsApp/Media/${sName}`);
-      dirs.add(`${base}/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/${sName}`);
-      dirs.add(`${base}/WhatsApp/Media/${sName}`);
-      dirs.add(`${base}/WhatsApp Business/Media/${sName}`);
+    for (const s of statusNames) {
+      // WhatsApp - official canonical (Android 10+ scoped)
+      add(`${base}/Android/media/com.whatsapp/WhatsApp/Media/${s}`);
+      // WhatsApp Business - official canonical (Android 10+ scoped)
+      add(`${base}/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/${s}`);
+      // Legacy (older WhatsApp installations)
+      add(`${base}/WhatsApp/Media/${s}`);
+      add(`${base}/WhatsApp Business/Media/${s}`);
     }
   }
 
-  // Expand with OEM subfolders (some Samsung/Xiaomi create received/sent/.tmp)
-  const expanded = new Set<string>(dirs);
-  for (const d of Array.from(dirs)) {
-    expanded.add(`${d}/received`);
-    expanded.add(`${d}/sent`);
-    expanded.add(`${d}/.tmp`);
-    expanded.add(`${d}/temp`);
+  // Also include mod variants (GB/Yo/FM) but after official so official is checked first
+  const mods: Array<{ folder: string; pkg: string }> = [
+    { folder: "GBWhatsApp", pkg: "com.gbwhatsapp" },
+    { folder: "YoWhatsApp", pkg: "com.yowa" },
+    { folder: "FMWhatsApp", pkg: "com.fmwhatsapp" },
+  ];
+  for (const base of bases) {
+    for (const m of mods) {
+      for (const s of statusNames) {
+        add(`${base}/${m.folder}/Media/${s}`);
+        add(`${base}/Android/media/${m.pkg}/${m.folder}/Media/${s}`);
+        add(`${base}/Android/media/${m.pkg}/Media/${s}`);
+      }
+    }
   }
-  return Array.from(expanded);
+
+  // Temporary cache locations where WhatsApp buffers viewed statuses before moving
+  for (const base of bases) {
+    add(`${base}/Android/data/com.whatsapp/cache`);
+    add(`${base}/Android/data/com.whatsapp.w4b/cache`);
+  }
+
+  return dirs;
 }
 
 export const STATUS_DIRS: string[] = buildStatusDirs();

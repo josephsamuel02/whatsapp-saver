@@ -7,17 +7,17 @@ export default function TabsLayout() {
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: THEME.colors.waTeal },
+        headerStyle: { backgroundColor: "#25D366" },
         headerTintColor: "#fff",
         headerTitleStyle: { fontWeight: "800", fontSize: 16 },
-        tabBarActiveTintColor: THEME.colors.waTeal,
+        tabBarActiveTintColor: "#25D366",
         tabBarInactiveTintColor: THEME.colors.textMuted,
         tabBarStyle: {
           backgroundColor: "#ffffff",
           borderTopWidth: 1,
           borderTopColor: THEME.colors.border,
-          height: 88,
-          paddingBottom: 14,
+          height: 92,
+          paddingBottom: 16,
           paddingTop: 10,
           elevation: 12,
           shadowColor: "#000",
@@ -27,7 +27,7 @@ export default function TabsLayout() {
         },
         tabBarLabelStyle: { fontSize: 13, fontWeight: "800", marginTop: 4, letterSpacing: 0.2 },
         tabBarItemStyle: { paddingVertical: 4 },
-        tabBarActiveBackgroundColor: "rgba(18,140,126,0.08)",
+        tabBarActiveBackgroundColor: "rgba(37,211,102,0.12)",
         headerTitleAlign: "left",
         headerShadowVisible: false,
       }}
@@ -48,7 +48,7 @@ export default function TabsLayout() {
                   justifyContent: "center",
                 }}
               >
-                <Ionicons name="image" size={16} color="#fff" />
+                <Ionicons name="images" size={16} color="#fff" />
               </View>
               <Text
                 style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
@@ -59,7 +59,7 @@ export default function TabsLayout() {
           ),
           tabBarLabel: "Images",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "image" : "image-outline"} size={28} color={color} />
+            <Ionicons name={focused ? "images" : "images-outline"} size={30} color={color} />
           ),
         }}
       />
@@ -92,7 +92,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "videocam" : "videocam-outline"}
-              size={28}
+              size={30}
               color={color}
             />
           ),
@@ -127,7 +127,7 @@ export default function TabsLayout() {
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "bookmark" : "bookmark-outline"}
-              size={28}
+              size={30}
               color={color}
             />
           ),

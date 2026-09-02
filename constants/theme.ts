@@ -1,8 +1,8 @@
 export const THEME = {
   colors: {
-    primary: "#128C7E",
-    primaryDark: "#075E54",
-    primaryLight: "#25D366",
+    primary: "#25D366",
+    primaryDark: "#128C7E",
+    primaryLight: "#DCF8C6",
     accent: "#25D366",
     accentLight: "#DCF8C6",
     background: "#F2F3F5",
@@ -18,7 +18,7 @@ export const THEME = {
     overlay: "rgba(17,27,33,0.82)",
     successBg: "#E7F8EC",
     waGreen: "#25D366",
-    waTeal: "#128C7E",
+    waTeal: "#25D366",
     waDark: "#075E54",
   },
   radius: { sm: 8, md: 12, lg: 16, xl: 20, pill: 999 },
