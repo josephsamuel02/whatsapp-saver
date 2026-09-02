@@ -1,6 +1,6 @@
-import { Tabs, Link } from "expo-router";
+import { Tabs } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { Pressable, View, Text } from "react-native";
+import { View, Text } from "react-native";
 import { THEME } from "../../constants/theme";
 
 export default function TabsLayout() {
@@ -13,14 +13,21 @@ export default function TabsLayout() {
         tabBarActiveTintColor: THEME.colors.waTeal,
         tabBarInactiveTintColor: THEME.colors.textMuted,
         tabBarStyle: {
-          backgroundColor: "#fff",
+          backgroundColor: "#ffffff",
           borderTopWidth: 1,
           borderTopColor: THEME.colors.border,
-          height: 64,
-          paddingBottom: 8,
-          paddingTop: 6,
+          height: 88,
+          paddingBottom: 14,
+          paddingTop: 10,
+          elevation: 12,
+          shadowColor: "#000",
+          shadowOpacity: 0.12,
+          shadowRadius: 12,
+          shadowOffset: { width: 0, height: -4 },
         },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: "700", marginTop: 2 },
+        tabBarLabelStyle: { fontSize: 13, fontWeight: "800", marginTop: 4, letterSpacing: 0.2 },
+        tabBarItemStyle: { paddingVertical: 4 },
+        tabBarActiveBackgroundColor: "rgba(18,140,126,0.08)",
         headerTitleAlign: "left",
         headerShadowVisible: false,
       }}
@@ -50,23 +57,9 @@ export default function TabsLayout() {
               </Text>
             </View>
           ),
-          headerRight: () => (
-            <Link href="/privacy" asChild>
-              <Pressable
-                style={{
-                  marginRight: 14,
-                  padding: 6,
-                  backgroundColor: "rgba(255,255,255,0.14)",
-                  borderRadius: 999,
-                }}
-              >
-                <Ionicons name="shield-checkmark-outline" size={18} color="#fff" />
-              </Pressable>
-            </Link>
-          ),
           tabBarLabel: "Images",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "image" : "image-outline"} size={22} color={color} />
+            <Ionicons name={focused ? "image" : "image-outline"} size={28} color={color} />
           ),
         }}
       />
@@ -95,25 +88,11 @@ export default function TabsLayout() {
               </Text>
             </View>
           ),
-          headerRight: () => (
-            <Link href="/privacy" asChild>
-              <Pressable
-                style={{
-                  marginRight: 14,
-                  padding: 6,
-                  backgroundColor: "rgba(255,255,255,0.14)",
-                  borderRadius: 999,
-                }}
-              >
-                <Ionicons name="shield-checkmark-outline" size={18} color="#fff" />
-              </Pressable>
-            </Link>
-          ),
           tabBarLabel: "Videos",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "videocam" : "videocam-outline"}
-              size={22}
+              size={28}
               color={color}
             />
           ),
@@ -144,25 +123,11 @@ export default function TabsLayout() {
               </Text>
             </View>
           ),
-          headerRight: () => (
-            <Link href="/privacy" asChild>
-              <Pressable
-                style={{
-                  marginRight: 14,
-                  padding: 6,
-                  backgroundColor: "rgba(255,255,255,0.14)",
-                  borderRadius: 999,
-                }}
-              >
-                <Ionicons name="shield-checkmark-outline" size={18} color="#fff" />
-              </Pressable>
-            </Link>
-          ),
           tabBarLabel: "Saved",
           tabBarIcon: ({ color, focused }) => (
             <Ionicons
               name={focused ? "bookmark" : "bookmark-outline"}
-              size={22}
+              size={28}
               color={color}
             />
           ),

@@ -46,16 +46,19 @@ function labelFromPath(p: string): string {
   return "WhatsApp";
 }
 
-// ─── Exhaustive .Statuses locations ─────────────────────────────────────────
-// Covers: legacy, scoped Android/media, app-private Android/data, sdcard alias,
-// dual-app user 10/999, and popular mods (GB/FM/YO/Plus/Aero/MB/OG)
-// Each entry duplicated with /received and /sent where WhatsApp creates them on some OEMs
+// ─── Exhaustive statuses locations ─────────────────────────────────────────
+// Covers: legacy .Statuses, new Statuses (WhatsApp removed dot on some builds),
+// scoped Android/media, Android/data, sdcard alias, dual-app 10/999,
+// popular mods, plus temporary cache locations where WhatsApp buffers viewed statuses
 function buildStatusDirs(): string[] {
   const bases = [
     "/storage/emulated/0",
     "/sdcard",
     "/storage/emulated/10",
     "/storage/emulated/999",
+    "/storage/sdcard0",
+    "/mnt/sdcard",
+    "/data/media/0",
   ];
 
   const variants: Array<{ folder: string; pkg: string | null }> = [
@@ -74,33 +77,53 @@ function buildStatusDirs(): string[] {
     { folder: "NSWhatsApp", pkg: "com.nswhatsapp" },
   ];
 
+  const statusNames = [".Statuses", "Statuses"]; // dot and non-dot (WhatsApp changed in 2023-24 on some devices)
+
   const dirs = new Set<string>();
 
   for (const base of bases) {
     for (const v of variants) {
-      // Legacy: /sdcard/{App}/Media/.Statuses
-      dirs.add(`${base}/${v.folder}/Media/.Statuses`);
-      // Scoped: /sdcard/Android/media/{pkg}/{App}/Media/.Statuses
-      if (v.pkg) {
-        dirs.add(`${base}/Android/media/${v.pkg}/${v.folder}/Media/.Statuses`);
-        // Some mods use package as folder: /Android/media/{pkg}/Media/.Statuses
-        dirs.add(`${base}/Android/media/${v.pkg}/Media/.Statuses`);
-        // Private: /Android/data/{pkg}/Media/.Statuses
-        dirs.add(`${base}/Android/data/${v.pkg}/Media/.Statuses`);
-        dirs.add(`${base}/Android/data/${v.pkg}/Media/.Statuses/received`);
-        dirs.add(`${base}/Android/data/${v.pkg}/Media/.Statuses/sent`);
+      for (const sName of statusNames) {
+        // Legacy: /sdcard/{App}/Media/.Statuses and /Statuses
+        dirs.add(`${base}/${v.folder}/Media/${sName}`);
+        // Root hidden: /sdcard/{App}/.Statuses
+        dirs.add(`${base}/${v.folder}/${sName}`);
+        // Scoped: /Android/media/{pkg}/{App}/Media/.Statuses
+        if (v.pkg) {
+          dirs.add(`${base}/Android/media/${v.pkg}/${v.folder}/Media/${sName}`);
+          dirs.add(`${base}/Android/media/${v.pkg}/Media/${sName}`);
+          dirs.add(`${base}/Android/media/${v.pkg}/${sName}`);
+          // Private app storage (pre-Android 10 fallback)
+          dirs.add(`${base}/Android/data/${v.pkg}/Media/${sName}`);
+          dirs.add(`${base}/Android/data/${v.pkg}/cache/${sName}`);
+          dirs.add(`${base}/Android/data/${v.pkg}/files/${sName}`);
+          dirs.add(`${base}/Android/data/${v.pkg}/files/Media/${sName}`);
+          // Cache temp buffers where viewed statuses are temporarily held before moving to .Statuses
+          dirs.add(`${base}/Android/data/${v.pkg}/cache`);
+          dirs.add(`${base}/Android/data/${v.pkg}/files/.StatusesCache`);
+        }
       }
+      // WhatsApp internal temp cache (accessible via external on some OEMs)
+      dirs.add(`${base}/${v.folder}/cache`);
+      dirs.add(`${base}/${v.folder}/Media/.StatusesCache`);
+      dirs.add(`${base}/${v.folder}/.cache`);
     }
-    // Also canonical official paths that sometimes omit package nesting (Android 11+)
-    dirs.add(`${base}/Android/media/com.whatsapp/WhatsApp/Media/.Statuses`);
-    dirs.add(`${base}/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.Statuses`);
+    // Canonical official paths (Android 11+)
+    for (const sName of statusNames) {
+      dirs.add(`${base}/Android/media/com.whatsapp/WhatsApp/Media/${sName}`);
+      dirs.add(`${base}/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/${sName}`);
+      dirs.add(`${base}/WhatsApp/Media/${sName}`);
+      dirs.add(`${base}/WhatsApp Business/Media/${sName}`);
+    }
   }
 
-  // Expand with received/sent subfolders for every dir (some Samsung/Xiaomi ROMs)
+  // Expand with OEM subfolders (some Samsung/Xiaomi create received/sent/.tmp)
   const expanded = new Set<string>(dirs);
   for (const d of Array.from(dirs)) {
     expanded.add(`${d}/received`);
     expanded.add(`${d}/sent`);
+    expanded.add(`${d}/.tmp`);
+    expanded.add(`${d}/temp`);
   }
   return Array.from(expanded);
 }
@@ -108,35 +131,75 @@ function buildStatusDirs(): string[] {
 export const STATUS_DIRS: string[] = buildStatusDirs();
 
 // ─── Direct-filesystem scanner (legacy + MANAGE_EXTERNAL_STORAGE) ────────────
+function toFileUri(p: string): string {
+  if (p.startsWith("file://") || p.startsWith("content://")) return p;
+  return `file://${p}`;
+}
 function scanStatusDirSync(dirPath: string, filter?: MediaType): StatusFile[] {
-  try {
-    const dir = new Directory(dirPath);
-    if (!dir.exists) return [];
-    const items = dir.list();
-    const out: StatusFile[] = [];
-    for (const it of items) {
-      if (!(it instanceof File)) continue;
-      const name = it.name;
-      if (isIgnored(name)) continue;
-      const t = classify(name);
-      if (!t) continue;
-      if (filter && t !== filter) continue;
-      out.push({
-        uri: it.uri,
-        name,
-        type: t,
-        mtime: (it as any).modificationTime ?? null,
-        size: (it as any).size ?? 0,
-        source: dirPath,
-        sourceLabel: labelFromPath(dirPath),
-        isSAF: false,
-      });
-    }
-    out.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
-    return out;
-  } catch {
-    return [];
+  // Try both raw and file:// prefixed - Directory expects file:// for external storage
+  for (const candidate of [dirPath, toFileUri(dirPath)]) {
+    try {
+      const dir = new Directory(candidate);
+      if (!dir.exists) continue;
+      const items = dir.list();
+      const out: StatusFile[] = [];
+      for (const it of items) {
+        if (!(it instanceof File)) continue;
+        const name = it.name;
+        if (isIgnored(name)) continue;
+        const t = classify(name);
+        if (!t) continue;
+        if (filter && t !== filter) continue;
+        out.push({
+          uri: (it as any).uri || `${candidate}/${name}`,
+          name,
+          type: t,
+          mtime: (it as any).modificationTime ?? null,
+          size: (it as any).size ?? 0,
+          source: dirPath,
+          sourceLabel: labelFromPath(dirPath),
+          isSAF: false,
+        });
+      }
+      if (out.length > 0) {
+        out.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
+        return out;
+      }
+    } catch { /* try next candidate */ }
   }
+  return [];
+}
+
+async function scanStatusDirAsync(dirPath: string, filter?: MediaType): Promise<StatusFile[]> {
+  const uri = toFileUri(dirPath);
+  // Primary: LegacyFS readDirectoryAsync - works with MANAGE_EXTERNAL_STORAGE and file:// uris
+  try {
+    const names: string[] = await (LegacyFS as any).readDirectoryAsync(uri);
+    if (Array.isArray(names) && names.length >= 0) {
+      const out: StatusFile[] = [];
+      for (const name of names) {
+        if (isIgnored(name)) continue;
+        const t = classify(name);
+        if (!t) continue;
+        if (filter && t !== filter) continue;
+        const fullUri = `${uri}/${name}`;
+        let size = 0; let mtime: number | null = null;
+        try {
+          const info: any = await (LegacyFS as any).getInfoAsync(fullUri);
+          if (info?.exists === false) continue;
+          size = info?.size ?? 0;
+          mtime = info?.modificationTime ?? null;
+        } catch {}
+        out.push({ uri: fullUri, name, type: t, mtime, size, source: dirPath, sourceLabel: labelFromPath(dirPath), isSAF: false });
+      }
+      if (out.length > 0) {
+        out.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
+        return out;
+      }
+    }
+  } catch {}
+  // Fallback to sync Directory scan
+  return scanStatusDirSync(dirPath, filter);
 }
 
 // ─── SAF scanner ──────────────────────────────────────────────────────────────
@@ -231,16 +294,12 @@ export async function listStatusesAsync(filter?: MediaType): Promise<StatusFile[
   const direct: StatusFile[] = [];
   const seen = new Set<string>();
 
-  for (const p of STATUS_DIRS) {
-    const files = scanStatusDirSync(p, filter);
+  // Direct scan - parallel for speed
+  const directBatches = await Promise.all(STATUS_DIRS.map((p) => scanStatusDirAsync(p, filter)));
+  for (const files of directBatches) {
     for (const f of files) {
       const key = `${f.name}::${f.size}`;
       if (seen.has(f.uri) || seen.has(key)) continue;
-      // Dedupe by name+size to avoid same file discovered via multiple path aliases (0 and sdcard)
-      if (seen.has(key)) {
-        // keep the one with more recent mtime? skip duplicate
-        continue;
-      }
       seen.add(f.uri);
       seen.add(key);
       direct.push(f);
@@ -280,11 +339,17 @@ export function listStatuses(filter?: MediaType): StatusFile[] {
 export async function getStatusDirStatus(): Promise<Array<{ path: string; exists: boolean; count: number }>> {
   if (Platform.OS !== "android") return [];
   const res: Array<{ path: string; exists: boolean; count: number }> = [];
-  // Only report canonical subset for UI diagnostics (avoid 100+ lines)
   const sample = STATUS_DIRS.filter((p) => !p.endsWith("/received") && !p.endsWith("/sent")).slice(0, 24);
   for (const p of sample) {
     try {
-      const d = new Directory(p);
+      const uri = toFileUri(p);
+      try {
+        const names: string[] = await (LegacyFS as any).readDirectoryAsync(uri);
+        const count = names.filter((n: string) => !isIgnored(n) && classify(n)).length;
+        res.push({ path: p, exists: true, count });
+        continue;
+      } catch {}
+      const d = new Directory(uri);
       const exists = d.exists;
       const count = exists ? d.list().filter((i) => i instanceof File && !isIgnored(i.name) && classify(i.name)).length : 0;
       res.push({ path: p, exists, count });
@@ -298,7 +363,9 @@ export async function getStatusDirStatus(): Promise<Array<{ path: string; exists
 export function getStatusDirUri(): string | null {
   if (Platform.OS !== "android") return null;
   for (const p of STATUS_DIRS) {
-    try { if (new Directory(p).exists) return p; } catch {}
+    for (const c of [p, toFileUri(p)]) {
+      try { if (new Directory(c).exists) return p; } catch {}
+    }
   }
   return null;
 }
