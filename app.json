@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#075E54"
+      "backgroundColor": "#25D366"
     },
     "ios": {
       "supportsTablet": true,
@@ -25,7 +25,7 @@
       "package": "com.statussaver.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#075E54"
+        "backgroundColor": "#25D366"
       },
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
