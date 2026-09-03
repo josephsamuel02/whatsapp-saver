@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { StatusFile, listStatusesAsync } from "./statusService";
+import { StatusFile, listStatuses } from "./statusService";
 import type { MediaType } from "./statusService";
 
 export function useStatuses(filter?: MediaType) {
@@ -11,7 +11,7 @@ export function useStatuses(filter?: MediaType) {
   const load = useCallback(async () => {
     try {
       setError(null);
-      const data = await listStatusesAsync(filter);
+      const data = await listStatuses(filter);
       setFiles(data);
     } catch (e: any) {
       setError(e?.message ?? "Failed to load");

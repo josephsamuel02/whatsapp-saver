@@ -1,52 +1,129 @@
-import { Platform, Linking } from "react-native";
-import * as LegacyFS from "expo-file-system/legacy";
-import * as MediaLibrary from "expo-media-library";
+import { Platform, Linking } from 'react-native';
+import * as FileSystem from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library';
 
-export type AccessState = "checking" | "granted" | "blocked" | "needsSAF";
-
-export async function checkAllFilesAccess(): Promise<boolean> {
-  // Direct detection: try to list one canonical .Statuses dir
-  if (Platform.OS !== "android") return true;
+// ─── Storage Access Framework (SAF) Permissions ───────────────────────────────
+/**
+ * Check if user has granted SAF permission to any folder
+ */
+export async function hasSAFPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  
   try {
-    const { Directory } = await import("expo-file-system");
-    const test = new Directory("/storage/emulated/0/WhatsApp/Media/.Statuses");
-    // Accessing exists will throw if no permission on Android 11+ without MANAGE_EXTERNAL_STORAGE
-    return test.exists || true; // if no throw, we have some access
-  } catch { return false; }
+    const SAF = (FileSystem as any).StorageAccessFramework;
+    if (!SAF?.getUriPermissionsAsync) return false;
+    
+    const permissions = await SAF.getUriPermissionsAsync();
+    return Array.isArray(permissions) && permissions.length > 0;
+  } catch {
+    return false;
+  }
 }
 
-export async function checkMediaLibraryAccess(): Promise<boolean> {
+/**
+ * Request SAF directory access - opens system folder picker
+ * User needs to navigate to WhatsApp/.Statuses folder
+ */
+export async function requestSAFPermission(): Promise<boolean> {
+  if (Platform.OS !== 'android') return false;
+  
   try {
-    const p = await MediaLibrary.getPermissionsAsync();
-    return !!p.granted;
-  } catch { return false; }
+    const SAF = (FileSystem as any).StorageAccessFramework;
+    if (!SAF?.requestDirectoryPermissionsAsync) {
+      throw new Error('Storage Access Framework not available on this device');
+    }
+    
+    const result = await SAF.requestDirectoryPermissionsAsync();
+    return !!result?.granted;
+  } catch (error) {
+    console.error('SAF request failed:', error);
+    return false;
+  }
 }
 
-export async function hasAnyAccess(): Promise<boolean> {
-  const [media] = await Promise.all([checkMediaLibraryAccess()]);
-  const SAF: any = (LegacyFS as any).StorageAccessFramework;
-  let safGranted = false;
-  try { const l = await SAF?.getPersistedUriPermissionsAsync?.(); safGranted = !!(l && Array.isArray(l) && l.length); } catch {}
-  return media || safGranted;
+/**
+ * Get list of all granted SAF directory URIs
+ */
+export async function getGrantedSAFUris(): Promise<string[]> {
+  if (Platform.OS !== 'android') return [];
+  
+  try {
+    const SAF = (FileSystem as any).StorageAccessFramework;
+    if (!SAF?.getUriPermissionsAsync) return [];
+    
+    const permissions = await SAF.getUriPermissionsAsync();
+    if (!Array.isArray(permissions)) return [];
+    
+    return permissions
+      .map((p: any) => p.directoryUri || p.uri)
+      .filter((uri: any): uri is string => typeof uri === 'string');
+  } catch {
+    return [];
+  }
 }
 
-export async function requestMediaPermissions(): Promise<boolean> {
-  const r = await MediaLibrary.requestPermissionsAsync();
-  return !!r.granted;
+// ─── Media Library Permissions (for saving to gallery) ────────────────────────
+/**
+ * Check if we have media library permission (needed for saving)
+ */
+export async function hasMediaLibraryPermission(): Promise<boolean> {
+  try {
+    const permission = await MediaLibrary.getPermissionsAsync();
+    return permission.granted;
+  } catch {
+    return false;
+  }
 }
 
-export async function requestSAF(): Promise<boolean> {
-  const SAF: any = (LegacyFS as any).StorageAccessFramework;
-  if (!SAF?.requestDirectoryPermissionsAsync) throw new Error("File access framework not supported on this device");
-  const res = await SAF.requestDirectoryPermissionsAsync();
-  if (res?.granted) return true;
-  return false;
+/**
+ * Request media library permission
+ */
+export async function requestMediaLibraryPermission(): Promise<boolean> {
+  try {
+    const result = await MediaLibrary.requestPermissionsAsync();
+    return result.granted;
+  } catch {
+    return false;
+  }
 }
 
-export async function openAllFilesSettings(): Promise<void> {
-  // On Android 11+ MANAGE_EXTERNAL_STORAGE permission opens special Settings page
-  // Linking.openSettings() opens app settings where user can toggle "Allow management of all files"
-  await Linking.openSettings();
+// ─── Combined Permission Checks ───────────────────────────────────────────────
+/**
+ * Check if we have all necessary permissions to view and save statuses
+ */
+export async function hasAllPermissions(): Promise<{ canView: boolean; canSave: boolean }> {
+  const [safPerm, mediaPerm] = await Promise.all([
+    hasSAFPermission(),
+    hasMediaLibraryPermission(),
+  ]);
+  
+  return {
+    canView: safPerm,  // Need SAF to view WhatsApp statuses
+    canSave: mediaPerm, // Need MediaLibrary to save to gallery
+  };
 }
 
-export function isAndroid(): boolean { return Platform.OS === "android"; }
+// ─── Settings ─────────────────────────────────────────────────────────────────
+/**
+ * Open app settings where user can manage permissions
+ */
+export async function openAppSettings(): Promise<void> {
+  try {
+    await Linking.openSettings();
+  } catch (error) {
+    console.error('Failed to open settings:', error);
+  }
+}
+
+// ─── Platform Check ───────────────────────────────────────────────────────────
+export function isAndroid(): boolean {
+  return Platform.OS === 'android';
+}
+
+export function isAndroid11Plus(): boolean {
+  if (Platform.OS !== 'android') return false;
+  
+  // Platform.Version is the Android API level on Android
+  const apiLevel = typeof Platform.Version === 'number' ? Platform.Version : 0;
+  return apiLevel >= 30; // Android 11 is API 30
+}

@@ -1,150 +1,379 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Platform, Pressable, Alert, ActivityIndicator } from "react-native";
-import { useFocusEffect } from "expo-router";
-import { Ionicons } from "@expo/vector-icons";
-import * as MediaLibrary from "expo-media-library";
-import { THEME } from "../../constants/theme";
-import { StatusFile, saveMultipleToGallery } from "../../lib/statusService";
-import { StatusGrid } from "../../components/StatusGrid";
-import { PreviewModal } from "../../components/PreviewModal";
-import { PermissionGate } from "../../components/PermissionGate";
-import { useStatuses } from "../../lib/useStatuses";
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, Platform, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
+import { useFocusEffect } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
+import { THEME } from '../../constants/theme';
+import { listStatuses, StatusFile, saveMultipleToGallery } from '../../lib/statusService';
+import { hasSAFPermission, hasMediaLibraryPermission } from '../../lib/storageAccess';
+import { StatusGrid } from '../../components/StatusGrid';
+import { PreviewModal } from '../../components/PreviewModal';
+import { PermissionGate } from '../../components/PermissionGate';
 
 export default function VideosScreen() {
-  const { files, loading, refreshing, refresh } = useStatuses("video");
+  const [files, setFiles] = useState<StatusFile[]>([]);
+  const [hasAccess, setHasAccess] = useState(false);
   const [selected, setSelected] = useState<StatusFile | null>(null);
+  const [loading, setLoading] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
-  const [hasMediaPerm, setHasMediaPerm] = useState<boolean | null>(null);
 
-  const checkPerm = useCallback(async () => {
-    if (Platform.OS !== "android") { setHasMediaPerm(true); return; }
-    try { const p = await MediaLibrary.getPermissionsAsync(); setHasMediaPerm(!!p.granted); } catch { setHasMediaPerm(false); }
-  }, []);
-  useFocusEffect(useCallback(() => { checkPerm(); refresh(); }, [checkPerm]));
+  async function checkAccess() {
+    if (Platform.OS !== 'android') {
+      setHasAccess(true);
+      return;
+    }
+    
+    try {
+      const granted = await hasSAFPermission();
+      setHasAccess(granted);
+    } catch {
+      setHasAccess(false);
+    }
+  }
+
+  async function loadStatuses() {
+    if (Platform.OS !== 'android') return;
+    
+    setLoading(true);
+    try {
+      const statuses = await listStatuses('video');
+      setFiles(statuses);
+    } catch (error) {
+      console.error('Failed to load statuses:', error);
+      setFiles([]);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function refresh() {
+    await checkAccess();
+    await loadStatuses();
+  }
+
+  useFocusEffect(
+    useCallback(() => {
+      refresh();
+    }, [])
+  );
 
   const isSelection = selection.size > 0;
+  
   const toggleSelect = (f: StatusFile) => {
     setSelection((prev) => {
-      const n = new Set(prev);
-      if (n.has(f.uri)) n.delete(f.uri); else n.add(f.uri);
-      return n;
+      const next = new Set(prev);
+      if (next.has(f.uri)) {
+        next.delete(f.uri);
+      } else {
+        next.add(f.uri);
+      }
+      return next;
     });
   };
+
   const clearSelection = () => setSelection(new Set());
   const selectedFiles = files.filter((f) => selection.has(f.uri));
 
   async function handleSaveSelected() {
-    if (!selectedFiles.length) return;
+    if (selectedFiles.length === 0) return;
+    
+    // Check media library permission first
+    const hasMediaPerm = await hasMediaLibraryPermission();
+    if (!hasMediaPerm) {
+      Alert.alert(
+        'Permission Required',
+        'Please allow photo library access to save videos.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
     setSavingAll(true);
     try {
-      const r = await saveMultipleToGallery(selectedFiles);
-      Alert.alert("Saved", `${r.saved} video${r.saved !== 1 ? "s" : ""} saved to Gallery • Album: Status Saver`);
+      const result = await saveMultipleToGallery(selectedFiles);
+      Alert.alert(
+        'Saved',
+        `${result.saved} video${result.saved !== 1 ? 's' : ''} saved to Gallery • Album: Status Saver${
+          result.errors ? ` • ${result.errors} failed` : ''
+        }`
+      );
       clearSelection();
-    } catch (e: any) { Alert.alert("Save failed", e?.message ?? "Try again"); }
-    finally { setSavingAll(false); }
-  }
-  async function handleSaveAll() {
-    if (!files.length) return;
-    setSavingAll(true);
-    try {
-      const r = await saveMultipleToGallery(files);
-      Alert.alert("Saved", `${r.saved} video${r.saved !== 1 ? "s" : ""} saved`);
-    } catch (e: any) { Alert.alert("Save failed", e?.message ?? "Check gallery permission"); }
-    finally { setSavingAll(false); }
+    } catch (error: any) {
+      Alert.alert('Save Failed', error?.message || 'Could not save videos');
+    } finally {
+      setSavingAll(false);
+    }
   }
 
-  if (Platform.OS !== "android") {
+  async function handleSaveAll() {
+    if (files.length === 0) return;
+    
+    // Check media library permission first
+    const hasMediaPerm = await hasMediaLibraryPermission();
+    if (!hasMediaPerm) {
+      Alert.alert(
+        'Permission Required',
+        'Please allow photo library access to save videos.',
+        [{ text: 'OK' }]
+      );
+      return;
+    }
+
+    setSavingAll(true);
+    try {
+      const result = await saveMultipleToGallery(files);
+      Alert.alert(
+        'Saved',
+        `${result.saved} video${result.saved !== 1 ? 's' : ''} saved to Gallery • Album: Status Saver${
+          result.errors ? ` • ${result.errors} failed` : ''
+        }`
+      );
+    } catch (error: any) {
+      Alert.alert('Save Failed', error?.message || 'Could not save videos');
+    } finally {
+      setSavingAll(false);
+    }
+  }
+
+  // Non-Android platform
+  if (Platform.OS !== 'android') {
     return (
       <View style={s.center}>
-        <View style={s.centerIcon}><Ionicons name="videocam-outline" size={42} color={THEME.colors.primary} /></View>
-        <Text style={s.title}>Android only</Text>
-        <Text style={s.sub}>Video statuses live in WhatsApp’s private folder which iOS blocks. Use Android to save them.</Text>
+        <View style={s.centerIcon}>
+          <Ionicons name="phone-portrait-outline" size={48} color={THEME.colors.primary} />
+        </View>
+        <Text style={s.title}>Android Only</Text>
+        <Text style={s.sub}>
+          iOS cannot access WhatsApp's files due to system sandboxing. 
+          Please use this app on an Android device.
+        </Text>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      {hasMediaPerm === false ? <PermissionGate onGranted={() => { checkPerm(); refresh(); }} /> : null}
+      {/* Show permission gate if no access */}
+      {!hasAccess && <PermissionGate onGranted={refresh} />}
 
-      <View style={s.statsCard}>
-        <View style={s.statRow}>
-          <View style={[s.statIconBox, { backgroundColor: THEME.colors.waTeal }]}><Ionicons name="videocam" size={16} color="#fff" /></View>
-          <View style={{ flex: 1 }}>
-            <Text style={s.statValue}>{loading ? "—" : `${files.length} videos`}</Text>
-            <Text style={s.statLabel}>MP4 • 3GP • MOV • MKV • Business & WhatsApp</Text>
-          </View>
-          <Pressable onPress={() => refresh()} style={s.refreshBtn}><Ionicons name="refresh" size={16} color={THEME.colors.primary} /><Text style={s.refreshText}>Refresh</Text></Pressable>
-        </View>
-        {files.length > 1 && (
-          <View style={s.batchBar}>
-            {isSelection ? (
-              <>
-                <Pressable onPress={clearSelection} style={s.batchSecondary}><Text style={s.batchSecondaryText}>Clear ({selection.size})</Text></Pressable>
-                <Pressable onPress={handleSaveSelected} disabled={savingAll} style={s.batchPrimary}>
-                  {savingAll ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="download" size={14} color="#fff" />}
-                  <Text style={s.batchPrimaryText}>Save Selected</Text>
-                </Pressable>
-              </>
-            ) : (
-              <>
-                <Text style={s.batchHint}>Long-press to multi-select • Tap to preview with sound</Text>
-                <Pressable onPress={handleSaveAll} disabled={savingAll || files.length === 0} style={[s.batchPrimary, (savingAll || files.length === 0) && { opacity: 0.6 }]}>
-                  {savingAll ? <ActivityIndicator color="#fff" size="small" /> : <Ionicons name="download-outline" size={14} color="#fff" />}
-                  <Text style={s.batchPrimaryText}>Save All</Text>
-                </Pressable>
-              </>
+      {/* Show content if we have access */}
+      {hasAccess && (
+        <>
+          {/* Header with stats and refresh */}
+          <View style={s.header}>
+            <View style={s.statsRow}>
+              <View style={s.iconBadge}>
+                <Ionicons name="videocam" size={18} color="#fff" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={s.statsCount}>
+                  {loading ? '...' : `${files.length} video${files.length !== 1 ? 's' : ''}`}
+                </Text>
+                <Text style={s.statsLabel}>WhatsApp Statuses</Text>
+              </View>
+              <Pressable onPress={refresh} style={s.refreshBtn} disabled={loading}>
+                <Ionicons name="refresh" size={18} color={THEME.colors.primary} />
+                <Text style={s.refreshText}>Refresh</Text>
+              </Pressable>
+            </View>
+
+            {/* Action bar */}
+            {files.length > 0 && (
+              <View style={s.actionBar}>
+                {isSelection ? (
+                  <>
+                    <Pressable onPress={clearSelection} style={s.actionSecondary}>
+                      <Text style={s.actionSecondaryText}>Clear ({selection.size})</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={handleSaveSelected}
+                      disabled={savingAll}
+                      style={[s.actionPrimary, savingAll && s.actionDisabled]}
+                    >
+                      {savingAll ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons name="download" size={16} color="#fff" />
+                      )}
+                      <Text style={s.actionPrimaryText}>Save Selected</Text>
+                    </Pressable>
+                  </>
+                ) : (
+                  <>
+                    <Text style={s.hintText}>Long-press to select multiple</Text>
+                    <Pressable
+                      onPress={handleSaveAll}
+                      disabled={savingAll}
+                      style={[s.actionPrimary, savingAll && s.actionDisabled]}
+                    >
+                      {savingAll ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <Ionicons name="download-outline" size={16} color="#fff" />
+                      )}
+                      <Text style={s.actionPrimaryText}>Save All</Text>
+                    </Pressable>
+                  </>
+                )}
+              </View>
             )}
           </View>
-        )}
-      </View>
 
-      <View style={{ flex: 1 }}>
-        {loading ? (
-          <View style={s.loadingWrap}>
-            <ActivityIndicator size="large" color={THEME.colors.primary} />
-            <Text style={s.loadingText}>Scanning for videos…</Text>
+          {/* Status grid or loading */}
+          <View style={{ flex: 1 }}>
+            {loading ? (
+              <View style={s.loadingContainer}>
+                <ActivityIndicator size="large" color={THEME.colors.primary} />
+                <Text style={s.loadingText}>Scanning WhatsApp folders...</Text>
+              </View>
+            ) : (
+              <StatusGrid
+                data={files}
+                onPress={setSelected}
+                onToggleSelect={toggleSelect}
+                selectedIds={selection}
+                selectionMode={isSelection}
+                emptyText="No video statuses found. View some statuses in WhatsApp, then pull to refresh."
+              />
+            )}
           </View>
-        ) : (
-          <StatusGrid
-            data={files}
-            onPress={setSelected}
-            onLongPress={toggleSelect}
-            emptyText="No video statuses found. View a video status in WhatsApp or WhatsApp Business, then pull to refresh. Videos need a second to cache — try again if empty."
-            refreshing={refreshing}
-            onRefresh={refresh}
-            selectedIds={selection}
-            onToggleSelect={toggleSelect}
-            selectionMode={isSelection}
-          />
-        )}
-      </View>
+        </>
+      )}
+
+      {/* Preview Modal */}
       <PreviewModal file={selected} onClose={() => setSelected(null)} />
     </View>
   );
 }
 
 const s = StyleSheet.create({
-  statsCard: { margin: 12, marginBottom: 6, backgroundColor: "#fff", borderRadius: 16, padding: 12, gap: 10, borderWidth: 1, borderColor: THEME.colors.border },
-  statRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  statIconBox: { width: 36, height: 36, borderRadius: 10, backgroundColor: THEME.colors.primary, alignItems: "center", justifyContent: "center" },
-  statValue: { fontSize: 14, fontWeight: "800", color: THEME.colors.text },
-  statLabel: { fontSize: 11, color: THEME.colors.textSecondary, marginTop: 1 },
-  refreshBtn: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: "#E7F8EC", paddingHorizontal: 12, paddingVertical: 8, borderRadius: 999, borderWidth: 1, borderColor: "#D0F0D8" },
-  refreshText: { fontSize: 12, fontWeight: "800", color: THEME.colors.primary },
-  batchBar: { flexDirection: "row", alignItems: "center", gap: 8, paddingTop: 6, borderTopWidth: 1, borderTopColor: THEME.colors.divider, marginTop: 2 },
-  batchHint: { flex: 1, fontSize: 11.5, color: THEME.colors.textMuted, fontWeight: "600" },
-  batchPrimary: { flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: THEME.colors.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999 },
-  batchPrimaryText: { color: "#fff", fontWeight: "800", fontSize: 12.5 },
-  batchSecondary: { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 999, borderWidth: 1, borderColor: THEME.colors.border, backgroundColor: "#fff" },
-  batchSecondaryText: { color: THEME.colors.text, fontWeight: "700", fontSize: 12.5 },
-  warnCard: { flexDirection: "row", gap: 8, alignItems: "center", marginHorizontal: 12, backgroundColor: "#FFF7E6", borderWidth: 1, borderColor: "#F9E0A2", padding: 10, borderRadius: 12 },
-  warnText: { flex: 1, fontSize: 11.5, color: "#7A5A12" },
-  loadingWrap: { flex: 1, alignItems: "center", justifyContent: "center", gap: 10, padding: 28 },
-  loadingText: { fontSize: 15, fontWeight: "800", color: THEME.colors.text },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 28, gap: 10, backgroundColor: THEME.colors.background },
-  centerIcon: { width: 72, height: 72, borderRadius: 36, backgroundColor: "#E7F8EC", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#D0F0D8" },
-  title: { fontSize: 18, fontWeight: "800", color: THEME.colors.text },
-  sub: { fontSize: 13, color: THEME.colors.textSecondary, textAlign: "center", lineHeight: 19 },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+    backgroundColor: THEME.colors.background,
+  },
+  centerIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#E7F8EC',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+    borderWidth: 2,
+    borderColor: '#C3F0CF',
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: THEME.colors.text,
+    marginBottom: 8,
+  },
+  sub: {
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  header: {
+    backgroundColor: '#fff',
+    borderBottomWidth: 1,
+    borderBottomColor: THEME.colors.border,
+    paddingTop: 12,
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+  },
+  iconBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: THEME.colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statsCount: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: THEME.colors.text,
+  },
+  statsLabel: {
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+  },
+  refreshBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+  },
+  refreshText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: THEME.colors.primary,
+  },
+  actionBar: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#F9FAFB',
+  },
+  hintText: {
+    flex: 1,
+    fontSize: 12,
+    color: THEME.colors.textSecondary,
+    alignSelf: 'center',
+  },
+  actionSecondary: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  actionSecondaryText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: THEME.colors.text,
+  },
+  actionPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: THEME.colors.primary,
+  },
+  actionDisabled: {
+    opacity: 0.6,
+  },
+  actionPrimaryText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#fff',
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 32,
+  },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 14,
+    color: THEME.colors.textSecondary,
+  },
 });

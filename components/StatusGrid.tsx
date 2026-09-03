@@ -71,7 +71,7 @@ const GridItem = memo(function GridItem({
       {/* Top source chip */}
       <View style={s.topChip}>
         <Text style={s.topChipText} numberOfLines={1}>
-          {item.sourceLabel.replace(" (Granted)", "")}
+          {(item.sourceLabel || 'WhatsApp').replace(" (Granted)", "")}
         </Text>
       </View>
 

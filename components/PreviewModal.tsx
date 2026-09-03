@@ -72,7 +72,7 @@ export function PreviewModal({
   async function handleSave() {
     try {
       setSaving(true);
-      await saveToGallery(file!);
+      await saveToGallery(file!.uri, file!.name);
       setSavedPulse(true);
       setTimeout(() => setSavedPulse(false), 1800);
     } catch (e: any) {
@@ -82,10 +82,10 @@ export function PreviewModal({
     }
   }
   async function handleShare() {
-    try { await shareFile(file!); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
+    try { await shareFile(file!.uri, file!.name); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
   }
   async function handleShareToWhatsApp() {
-    try { await shareToWhatsApp(file!); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
+    try { await shareToWhatsApp(file!.uri, file!.name); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
   }
 
   const isVideo = file.type === "video";
