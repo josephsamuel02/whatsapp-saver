@@ -1,38 +1,88 @@
-import React, { useCallback, useState } from "react";
-import { View, Text, StyleSheet, Pressable, Linking, ActivityIndicator, Alert, Image, FlatList, RefreshControl, Dimensions } from "react-native";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { View, Text, StyleSheet, Pressable, Linking, ActivityIndicator, Alert, Image, FlatList, RefreshControl, Dimensions, Modal } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import * as MediaLibrary from "expo-media-library";
 import { THEME } from "../../constants/theme";
 import * as Sharing from "expo-sharing";
 import { useVideoPlayer, VideoView } from "expo-video";
+import * as VideoThumbnails from "expo-video-thumbnails";
 
 const GAP = 3; const COLS = 3; const ITEM = (Dimensions.get("window").width - GAP * 4) / COLS;
 
 function SavedPreview({ asset, onClose }: { asset: any | null; onClose: () => void }) {
-  const [saving, setSaving] = useState(false);
-  if (!asset) return null;
-  const isVideo = asset.mediaType === "video";
+  const isVideo = asset?.mediaType === "video";
   return (
-    <View style={pv.root}>
-      <View style={pv.topBar}>
-        <Pressable onPress={onClose} style={pv.iconBtn}><Ionicons name="close" size={20} color="#fff" /></Pressable>
-        <Text style={pv.name} numberOfLines={1}>{asset.filename}</Text>
-        <View style={{ width: 38 }} />
+    <Modal visible={!!asset} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose} statusBarTranslucent>
+      <View style={pv.root}>
+        <View style={pv.topBar}>
+          <Pressable onPress={onClose} style={pv.iconBtn}><Ionicons name="close" size={20} color="#fff" /></Pressable>
+          <Text style={pv.name} numberOfLines={1}>{asset?.filename ?? ''}</Text>
+          <View style={{ width: 38 }} />
+        </View>
+        <View style={pv.media}>
+          {asset && (isVideo ? <VideoPreview asset={asset} /> : <Image source={{ uri: asset.uri }} style={pv.img} resizeMode="contain" />)}
+        </View>
+        <View style={pv.bottom}>
+          <Pressable onPress={async () => { try { if (asset) await Sharing.shareAsync(asset.uri); } catch (e:any){ Alert.alert("Share failed", e?.message); } }} style={pv.btn}><Ionicons name="share-outline" size={18} color="#fff" /><Text style={pv.btnT}>Share</Text></Pressable>
+          <Pressable onPress={onClose} style={[pv.btn, pv.btnPrimary]}><Ionicons name="checkmark" size={18} color="#fff" /><Text style={pv.btnT}>Done</Text></Pressable>
+        </View>
       </View>
-      <View style={pv.media}>
-        {isVideo ? <VideoPreview asset={asset} /> : <Image source={{ uri: asset.uri }} style={pv.img} resizeMode="contain" />}
-      </View>
-      <View style={pv.bottom}>
-        <Pressable onPress={async () => { try { await Sharing.shareAsync(asset.uri); } catch (e:any){ Alert.alert("Share failed", e?.message); } }} style={pv.btn}><Ionicons name="share-outline" size={18} color="#fff" /><Text style={pv.btnT}>Share</Text></Pressable>
-        <Pressable onPress={onClose} style={[pv.btn, pv.btnPrimary]}><Ionicons name="checkmark" size={18} color="#fff" /><Text style={pv.btnT}>Done</Text></Pressable>
-      </View>
-    </View>
+    </Modal>
   );
 }
 function VideoPreview({ asset }: { asset: any }) {
-  const player = useVideoPlayer(asset.uri, (p: any) => { p.loop = false; });
+  const player = useVideoPlayer(asset.uri, (p: any) => { p.loop = true; });
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { player.play(); } catch {}
+    }, 300);
+    return () => {
+      clearTimeout(t);
+      try { player.pause(); } catch {}
+    };
+  }, [player, asset.uri]);
   return <VideoView player={player} style={{ width: "100%", height: "100%" }} contentFit="contain" nativeControls />;
+}
+
+function SavedThumb({ asset }: { asset: any }) {
+  const isVideo = asset.mediaType === "video";
+  const [thumb, setThumb] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    setThumb(null);
+    setFailed(false);
+    if (!isVideo) return;
+    VideoThumbnails.getThumbnailAsync(asset.uri, { time: 500, quality: 0.6 })
+      .then(({ uri }) => {
+        if (!cancelled) setThumb(uri);
+      })
+      .catch(() => {
+        if (!cancelled) setThumb(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isVideo, asset.uri, asset.id]);
+  if (failed) {
+    return (
+      <View style={s.thumbFallback}>
+        <Ionicons name={isVideo ? "videocam-outline" : "image-outline"} size={26} color="#8A9BA3" />
+      </View>
+    );
+  }
+  return (
+    <>
+      <Image
+        source={{ uri: isVideo ? thumb ?? asset.uri : asset.uri }}
+        style={s.thumb}
+        resizeMode="cover"
+        onError={() => setFailed(true)}
+      />
+      {isVideo && <View style={s.play}><Ionicons name="play" size={12} color="#fff" /></View>}
+    </>
+  );
 }
 const pv = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
@@ -53,28 +103,39 @@ export default function SavedScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [perm, setPerm] = useState(false);
   const [selected, setSelected] = useState<any | null>(null);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   const load = useCallback(async () => {
     try {
       const p = await MediaLibrary.getPermissionsAsync();
-      if (!p.granted) { const r = await MediaLibrary.requestPermissionsAsync(); if (!r.granted) { setPerm(false); setLoading(false); return; } }
-      setPerm(true);
+      if (!p.granted) { const r = await MediaLibrary.requestPermissionsAsync(); if (!r.granted) { if (mounted.current) { setPerm(false); setLoading(false); } return; } }
+      if (mounted.current) setPerm(true);
       const album = await MediaLibrary.getAlbumAsync("Status Saver");
-      if (!album) { setAssets([]); return; }
-      const res = await MediaLibrary.getAssetsAsync({ album: album.id, sortBy: ["creationTime"], first: 200, mediaType: ["photo", "video"] });
-      setAssets(res.assets);
+      if (!album) { if (mounted.current) setAssets([]); return; }
+      // Pass the Album object (not just its id) so results are scoped to the
+      // "Status Saver" album on all SDK versions.
+      const res = await (MediaLibrary as any).getAssetsAsync({ album, sortBy: ["creationTime"], first: 200, mediaType: ["photo", "video"] });
+      if (mounted.current) setAssets(res.assets);
     } catch (e) { /* ignore */ }
-    finally { setLoading(false); setRefreshing(false); }
+    finally { if (mounted.current) { setLoading(false); setRefreshing(false); } }
   }, []);
 
   useFocusEffect(useCallback(() => { setLoading(true); load(); }, [load]));
 
-  if (selected) {
-    return (
-      <View style={{ flex: 1 }}>
-        <SavedPreview asset={selected} onClose={() => setSelected(null)} />
-      </View>
-    );
+  async function handleLongPressShare(item: any) {
+    try {
+      await Sharing.shareAsync(item.uri);
+    } catch (e: any) {
+      if (e?.message && !/dismissed|cancel/i.test(e.message)) {
+        Alert.alert("Share failed", e.message);
+      }
+    }
   }
 
   if (loading) {
@@ -125,14 +186,19 @@ export default function SavedScreen() {
           columnWrapperStyle={{ gap: GAP }}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); }} tintColor={THEME.colors.primary} />}
           renderItem={({ item }) => (
-            <Pressable onPress={() => setSelected(item)} style={s.cell}>
-              <Image source={{ uri: item.uri }} style={s.thumb} resizeMode="cover" />
-              {item.mediaType === "video" && <View style={s.play}><Ionicons name="play" size={12} color="#fff" /></View>}
+            <Pressable
+              onPress={() => setSelected(item)}
+              onLongPress={() => handleLongPressShare(item)}
+              delayLongPress={320}
+              style={s.cell}
+            >
+              <SavedThumb asset={item} />
               <View style={s.durChip}><Text style={s.durText}>{item.mediaType === "video" ? "Video" : "Image"}</Text></View>
             </Pressable>
           )}
         />
       )}
+      <SavedPreview asset={selected} onClose={() => setSelected(null)} />
     </View>
   );
 }
@@ -160,6 +226,7 @@ const s = StyleSheet.create({
   emptySub: { fontSize: 13, color: THEME.colors.textSecondary, textAlign: "center", lineHeight: 19 },
   cell: { width: ITEM, height: ITEM, borderRadius: 12, overflow: "hidden", backgroundColor: "#E9EDEF", borderWidth: 1, borderColor: THEME.colors.border },
   thumb: { width: "100%", height: "100%" } as any,
+  thumbFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#1E2A30" } as any,
   play: { position: "absolute", bottom: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: "rgba(0,0,0,0.62)", alignItems: "center", justifyContent: "center" } as any,
   durChip: { position: "absolute", top: 6, left: 6, backgroundColor: "rgba(17,27,33,0.62)", paddingHorizontal: 6, paddingVertical: 2, borderRadius: 999 } as any,
   durText: { color: "#fff", fontSize: 9, fontWeight: "800" },

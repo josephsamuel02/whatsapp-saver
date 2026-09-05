@@ -15,13 +15,61 @@ import { Ionicons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { THEME } from "../constants/theme";
 import type { StatusFile } from "../lib/statusService";
-import { saveToGallery, shareFile, shareToWhatsApp, formatBytes, formatDate } from "../lib/statusService";
+import { saveToGallery, shareFile, shareToWhatsApp, formatBytes, formatDate, ensureLocalUri, isContentUri } from "../lib/statusService";
 
 const W = Dimensions.get("window").width;
 const H = Dimensions.get("window").height;
 
 // Isolated video component so hooks are never conditional
-function VideoPreview({ uri }: { uri: string }) {
+// SAF content:// URIs can't be played directly — stage to file:// first.
+function VideoPreview({ uri, name }: { uri: string; name: string }) {
+  const [playUri, setPlayUri] = useState<string | null>(
+    isContentUri(uri) ? null : uri
+  );
+  const [stageFailed, setStageFailed] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!isContentUri(uri)) {
+      setPlayUri(uri);
+      return;
+    }
+    setPlayUri(null);
+    setStageFailed(false);
+    ensureLocalUri(uri, name)
+      .then((local) => {
+        if (!cancelled) setPlayUri(local);
+      })
+      .catch(() => {
+        if (!cancelled) setStageFailed(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [uri, name]);
+
+  if (stageFailed) {
+    return (
+      <View style={styles.videoFallback}>
+        <Ionicons name="videocam-off-outline" size={44} color="#8A9BA3" />
+        <Text style={styles.videoFallbackText}>Could not load this video</Text>
+      </View>
+    );
+  }
+
+  if (!playUri) {
+    return (
+      <View style={styles.videoFallback}>
+        <ActivityIndicator size="large" color="#fff" />
+        <Text style={styles.videoFallbackText}>Loading video…</Text>
+      </View>
+    );
+  }
+
+  return <VideoPlayerInner uri={playUri} />;
+}
+
+function VideoPlayerInner({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, (p: any) => {
     p.loop = false;
     p.muted = false;
@@ -51,6 +99,63 @@ function VideoPreview({ uri }: { uri: string }) {
   );
 }
 
+// SAF images sometimes fail to render straight from content:// — retry via cache.
+function ImagePreview({ uri, name }: { uri: string; name: string }) {
+  const [src, setSrc] = useState(uri);
+  const [failed, setFailed] = useState(false);
+  const [staging, setStaging] = useState(false);
+
+  useEffect(() => {
+    setSrc(uri);
+    setFailed(false);
+    setStaging(false);
+  }, [uri]);
+
+  async function handleError() {
+    if (!isContentUri(uri) || staging || failed) {
+      setFailed(true);
+      return;
+    }
+    setStaging(true);
+    try {
+      const local = await ensureLocalUri(uri, name);
+      setSrc(local);
+    } catch {
+      setFailed(true);
+    } finally {
+      setStaging(false);
+    }
+  }
+
+  if (failed) {
+    return (
+      <View style={styles.videoFallback}>
+        <Ionicons name="image-outline" size={44} color="#8A9BA3" />
+        <Text style={styles.videoFallbackText}>Could not load this image</Text>
+      </View>
+    );
+  }
+
+  return (
+    <ScrollView
+      contentContainerStyle={styles.imageScrollContent}
+      maximumZoomScale={3}
+      minimumZoomScale={1}
+      showsHorizontalScrollIndicator={false}
+      showsVerticalScrollIndicator={false}
+      bouncesZoom
+      centerContent
+    >
+      <Image source={{ uri: src }} style={styles.image} resizeMode="contain" onError={handleError} />
+      {staging && (
+        <View style={styles.stagingBadge}>
+          <ActivityIndicator size="small" color="#fff" />
+        </View>
+      )}
+    </ScrollView>
+  );
+}
+
 export function PreviewModal({
   file,
   onClose,
@@ -61,11 +166,18 @@ export function PreviewModal({
   const [saving, setSaving] = useState(false);
   const [showInfo, setShowInfo] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
-  const sheetAnim = useRef(0);
+  const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const fileUri = file?.uri;
+  useEffect(() => {
+    if (fileUri) setShowInfo(false);
+  }, [fileUri]);
 
   useEffect(() => {
-    if (file) setShowInfo(false);
-  }, [file?.uri]);
+    return () => {
+      if (pulseTimer.current) clearTimeout(pulseTimer.current);
+    };
+  }, []);
 
   if (!file) return null;
 
@@ -74,7 +186,8 @@ export function PreviewModal({
       setSaving(true);
       await saveToGallery(file!.uri, file!.name);
       setSavedPulse(true);
-      setTimeout(() => setSavedPulse(false), 1800);
+      if (pulseTimer.current) clearTimeout(pulseTimer.current);
+      pulseTimer.current = setTimeout(() => setSavedPulse(false), 1800);
     } catch (e: any) {
       Alert.alert("Could not save", e?.message ?? "Check gallery permission in Settings");
     } finally {
@@ -96,19 +209,9 @@ export function PreviewModal({
         {/* Media */}
         <View style={styles.mediaWrap}>
           {isVideo ? (
-            <VideoPreview uri={file.uri} />
+            <VideoPreview uri={file.uri} name={file.name} />
           ) : (
-            <ScrollView
-              contentContainerStyle={styles.imageScrollContent}
-              maximumZoomScale={3}
-              minimumZoomScale={1}
-              showsHorizontalScrollIndicator={false}
-              showsVerticalScrollIndicator={false}
-              bouncesZoom
-              centerContent
-            >
-              <Image source={{ uri: file.uri }} style={styles.image} resizeMode="contain" />
-            </ScrollView>
+            <ImagePreview uri={file.uri} name={file.name} />
           )}
         </View>
 
@@ -195,6 +298,16 @@ const styles = StyleSheet.create({
   imageScrollContent: { flexGrow: 1, alignItems: "center", justifyContent: "center", width: W, height: H },
   image: { width: W, height: H - 160, alignSelf: "center" },
   video: { width: W, height: H - 170 },
+  videoFallback: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
+  videoFallbackText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600" },
+  stagingBadge: {
+    position: "absolute",
+    bottom: 90,
+    alignSelf: "center",
+    backgroundColor: "rgba(0,0,0,0.6)",
+    borderRadius: 999,
+    padding: 8,
+  },
   topBar: {
     position: "absolute",
     top: 0, left: 0, right: 0,

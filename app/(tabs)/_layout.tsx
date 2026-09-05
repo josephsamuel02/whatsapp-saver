@@ -133,8 +133,48 @@ export default function TabsLayout() {
           ),
         }}
       />
-      {/* hidden index redirect tab */}
-      <Tabs.Screen name="index" options={{ href: null, headerShown: false }} />
+      <Tabs.Screen
+        name="settings"
+        options={{
+          title: "Settings",
+          headerTitle: () => (
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+              <View
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 14,
+                  backgroundColor: "rgba(255,255,255,0.18)",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <Ionicons name="settings" size={16} color="#fff" />
+              </View>
+              <Text
+                style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
+              >
+                Settings
+              </Text>
+            </View>
+          ),
+          tabBarLabel: "Settings",
+          tabBarIcon: ({ color, focused }) => (
+            <Ionicons
+              name={focused ? "settings" : "settings-outline"}
+              size={30}
+              color={color}
+            />
+          ),
+        }}
+      />
+      {/* NOTE: the old hidden "index" tab screen was removed here — it pointed
+          at app/(tabs)/index.tsx, which redirects to /(tabs)/images. Since
+          (tabs) is a route GROUP, that file also resolved to the bare "/"
+          route — the exact same path already owned by app/index.tsx. Two
+          files claiming "/" is what caused the duplicate-route weirdness.
+          Delete app/(tabs)/index.tsx; app/index.tsx already handles the
+          "/" → "/(tabs)/images" redirect on its own. */}
     </Tabs>
   );
 }

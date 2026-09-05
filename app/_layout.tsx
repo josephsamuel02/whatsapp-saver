@@ -41,6 +41,7 @@ export default function RootLayout() {
     <>
       <StatusBar style="light" backgroundColor={THEME.colors.waTeal} />
       <Stack screenOptions={{ headerShown: false, animation: "fade" }}>
+        <Stack.Screen name="index" />
         <Stack.Screen name="(tabs)" />
       </Stack>
     </>

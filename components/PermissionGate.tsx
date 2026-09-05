@@ -1,337 +1,302 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, Platform, ScrollView } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import {
+  View,
+  Text,
+  StyleSheet,
+  Pressable,
+  ActivityIndicator,
+  Platform,
+  AppState,
+  AppStateStatus,
+} from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
-import { hasSAFPermission, requestSAFPermission } from '../lib/storageAccess';
+import {
+  hasStoragePermission,
+  requestStoragePermission,
+  openAllFilesAccessSettings,
+  isAndroid11Plus,
+  hasSAFPermission,
+  requestSAFPermission,
+} from '../lib/storageAccess';
 
-interface PermissionGateProps {
+interface Props {
   onGranted?: () => void;
 }
 
-export function PermissionGate({ onGranted }: PermissionGateProps) {
+export function PermissionGate({ onGranted }: Props) {
   const [checking, setChecking] = useState(true);
-  const [hasPermission, setHasPermission] = useState(false);
+  const [granted, setGranted] = useState(false);
   const [requesting, setRequesting] = useState(false);
-  const [showInstructions, setShowInstructions] = useState(false);
+  const [requestingSAF, setRequestingSAF] = useState(false);
+  // true after the user tapped Allow and went to Settings (Android 11+)
+  const [waitingReturn, setWaitingReturn] = useState(false);
 
-  async function checkPermission() {
-    setChecking(true);
+  // onGranted changes identity every parent render (it's a plain function).
+  // Depending on it would re-run the initial check after EVERY render and
+  // call onGranted again → parent refresh → re-render → infinite scan loop.
+  // Keep it in a ref so `check` stays stable.
+  const onGrantedRef = useRef(onGranted);
+  useEffect(() => {
+    onGrantedRef.current = onGranted;
+  }, [onGranted]);
+
+  const check = useCallback(async () => {
+    if (Platform.OS !== 'android') { setGranted(true); setChecking(false); return; }
     try {
-      const granted = await hasSAFPermission();
-      setHasPermission(granted);
-      if (granted && onGranted) {
-        onGranted();
-      }
-    } catch (error) {
-      setHasPermission(false);
+      const [direct, saf] = await Promise.all([
+        hasStoragePermission(),
+        hasSAFPermission(),
+      ]);
+      const ok = direct || saf;
+      setGranted(ok);
+      if (ok) onGrantedRef.current?.();
+    } catch {
+      setGranted(false);
     } finally {
       setChecking(false);
     }
-  }
-
-  useEffect(() => {
-    checkPermission();
   }, []);
 
-  async function handleRequestPermission() {
+  // Initial check
+  useEffect(() => { check(); }, [check]);
+
+  // Re-check whenever the app returns to foreground (user coming back from
+  // system Settings or the folder picker). This subscription is ALWAYS active —
+  // previously it only existed while `waitingReturn` was true, so grants made
+  // outside that narrow window looked like "permission failing / not persistent".
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', async (state: AppStateStatus) => {
+      if (state === 'active') {
+        setWaitingReturn(false);
+        setChecking(true);
+        await check();
+      }
+    });
+    return () => sub.remove();
+  }, [check]);
+
+  async function handleAllow() {
     if (requesting) return;
-    
     setRequesting(true);
     try {
-      const granted = await requestSAFPermission();
-      
-      if (granted) {
-        setHasPermission(true);
-        if (onGranted) {
-          onGranted();
+      if (isAndroid11Plus()) {
+        // Opens system settings; the ALWAYS-ON AppState listener above
+        // re-checks when the user comes back. Keep the waiting label until then.
+        setWaitingReturn(true);
+        try {
+          await openAllFilesAccessSettings();
+        } catch {
+          setWaitingReturn(false);
         }
+      } else {
+        const ok = await requestStoragePermission();
+        setGranted(ok);
+        if (ok) onGranted?.();
       }
-      
-      // Always recheck after request
-      await checkPermission();
-    } catch (error) {
-      console.error('Permission request failed:', error);
     } finally {
       setRequesting(false);
     }
   }
 
+  async function handleSAF() {
+    if (requestingSAF) return;
+    setRequestingSAF(true);
+    try {
+      const { granted: ok } = await requestSAFPermission();
+      if (ok) {
+        setGranted(true);
+        onGranted?.();
+      }
+    } finally {
+      setRequestingSAF(false);
+    }
+  }
+
   if (Platform.OS !== 'android') return null;
+
   if (checking) {
     return (
-      <View style={s.loadingContainer}>
+      <View style={s.center}>
         <ActivityIndicator color={THEME.colors.primary} size="large" />
       </View>
     );
   }
 
-  if (hasPermission) return null;
+  if (granted) return null;
 
   return (
-    <ScrollView contentContainerStyle={s.container}>
-      <View style={s.card}>
-        {/* Icon */}
-        <View style={s.iconCircle}>
-          <Ionicons name="folder-open" size={40} color={THEME.colors.primary} />
-        </View>
-
-        {/* Title */}
-        <Text style={s.title}>Folder Access Required</Text>
-        <Text style={s.subtitle}>
-          To view WhatsApp statuses, you need to grant access to the WhatsApp Status folder
-        </Text>
-
-        {/* Instructions Toggle */}
-        <Pressable 
-          onPress={() => setShowInstructions(!showInstructions)}
-          style={s.instructionsToggle}
-        >
-          <Ionicons 
-            name={showInstructions ? "chevron-up" : "information-circle"} 
-            size={18} 
-            color={THEME.colors.primary} 
-          />
-          <Text style={s.instructionsToggleText}>
-            {showInstructions ? "Hide Instructions" : "How does this work?"}
-          </Text>
-        </Pressable>
-
-        {/* Expandable Instructions */}
-        {showInstructions && (
-          <View style={s.instructionsBox}>
-            <Text style={s.instructionsTitle}>📁 Step-by-step guide:</Text>
-            
-            <View style={s.step}>
-              <View style={s.stepNumber}><Text style={s.stepNumberText}>1</Text></View>
-              <Text style={s.stepText}>Tap "Select Folder" below</Text>
-            </View>
-
-            <View style={s.step}>
-              <View style={s.stepNumber}><Text style={s.stepNumberText}>2</Text></View>
-              <View style={{ flex: 1 }}>
-                <Text style={s.stepText}>Navigate to one of these paths:</Text>
-                <Text style={s.stepPath}>• Android → media → com.whatsapp → WhatsApp → Media → .Statuses</Text>
-                <Text style={s.stepPath}>• WhatsApp → Media → .Statuses</Text>
-              </View>
-            </View>
-
-            <View style={s.step}>
-              <View style={s.stepNumber}><Text style={s.stepNumberText}>3</Text></View>
-              <Text style={s.stepText}>Tap "Use this folder" or "Allow"</Text>
-            </View>
-
-            <View style={s.noteBox}>
-              <Ionicons name="information-circle" size={16} color="#F59E0B" />
-              <Text style={s.noteText}>
-                The .Statuses folder may be hidden. Look for "Show hidden files" option in folder picker.
-              </Text>
-            </View>
-
-            <View style={s.noteBox}>
-              <Ionicons name="logo-whatsapp" size={16} color="#25D366" />
-              <Text style={s.noteText}>
-                For WhatsApp Business, look for com.whatsapp.w4b instead of com.whatsapp
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {/* Action Button */}
-        <Pressable
-          onPress={handleRequestPermission}
-          disabled={requesting}
-          style={[s.button, requesting && s.buttonDisabled]}
-        >
-          {requesting ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <Ionicons name="folder-open-outline" size={20} color="#fff" />
-          )}
-          <Text style={s.buttonText}>
-            {requesting ? "Opening folder picker..." : "Select Folder"}
-          </Text>
-        </Pressable>
-
-        {/* Why SAF explanation */}
-        <View style={s.whyBox}>
-          <Text style={s.whyTitle}>Why is this needed?</Text>
-          <Text style={s.whyText}>
-            Android 11+ requires apps to request specific folder access for security. 
-            This ensures only you can grant access to your WhatsApp statuses.
-          </Text>
-        </View>
+    <View style={s.root}>
+      {/* Icon */}
+      <View style={s.iconRing}>
+        <Ionicons name="shield-checkmark-outline" size={44} color={THEME.colors.primary} />
       </View>
-    </ScrollView>
+
+      {/* Copy */}
+      <Text style={s.title}>Allow Storage Access</Text>
+      <Text style={s.body}>
+        Status Saver needs permission to read your phone's storage so it can
+        automatically find WhatsApp and WhatsApp Business statuses.
+      </Text>
+
+      {/* What it does */}
+      <View style={s.infoBox}>
+        <Row icon="checkmark-circle" text="Automatically scans all WhatsApp status folders" />
+        <Row icon="checkmark-circle" text="Supports WhatsApp, WhatsApp Business & mods" />
+        <Row icon="checkmark-circle" text="No folder selection needed — just tap Allow" />
+        <Row icon="lock-closed"      text="Only reads status files — nothing else" />
+      </View>
+
+      {/* CTA */}
+      <Pressable
+        onPress={handleAllow}
+        disabled={requesting || waitingReturn}
+        style={[s.btn, (requesting || waitingReturn) && s.btnDim]}
+      >
+        {requesting || waitingReturn ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Ionicons name="checkmark-circle-outline" size={20} color="#fff" />
+        )}
+        <Text style={s.btnText}>
+          {waitingReturn
+            ? 'Waiting for permission…'
+            : isAndroid11Plus()
+            ? 'Allow "All files access"'
+            : 'Allow Storage Access'}
+        </Text>
+      </Pressable>
+
+      {/* SAF fallback — Play-Store-friendly, no special permission needed */}
+      <Pressable
+        onPress={handleSAF}
+        disabled={requestingSAF || waitingReturn}
+        style={[s.btnSecondary, requestingSAF && s.btnDim]}
+      >
+        {requestingSAF ? (
+          <ActivityIndicator color={THEME.colors.primary} size="small" />
+        ) : (
+          <Ionicons name="folder-open-outline" size={18} color={THEME.colors.primary} />
+        )}
+        <Text style={s.btnSecondaryText}>Or pick the .Statuses folder</Text>
+      </Pressable>
+
+      {/* Android 11+ clarification */}
+      {isAndroid11Plus() && (
+        <Text style={s.hint}>
+          Android 11+ requires granting "All files access" in Settings. Tap Allow
+          above — the Settings page will open, enable the toggle, then come back.
+          {"\n"}Prefer the Play Store version? Use "pick the .Statuses folder"
+          instead: choose Android → media → com.whatsapp → WhatsApp → Media →
+          .Statuses (enable "Show hidden files" to see it).
+        </Text>
+      )}
+    </View>
+  );
+}
+
+function Row({ icon, text }: { icon: string; text: string }) {
+  return (
+    <View style={s.row}>
+      <Ionicons
+        name={icon as any}
+        size={16}
+        color={icon === 'lock-closed' ? THEME.colors.textSecondary : THEME.colors.primary}
+      />
+      <Text style={s.rowText}>{text}</Text>
+    </View>
   );
 }
 
 const s = StyleSheet.create({
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  container: {
-    flexGrow: 1,
-    padding: 16,
-    backgroundColor: THEME.colors.background,
-  },
-  card: {
+  root: {
+    margin: 16,
     backgroundColor: '#fff',
     borderRadius: 20,
     padding: 24,
     alignItems: 'center',
     borderWidth: 1,
     borderColor: THEME.colors.border,
+    elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
+    shadowOpacity: 0.06,
     shadowRadius: 8,
-    elevation: 2,
   },
-  iconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
+  iconRing: {
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     backgroundColor: '#E7F8EC',
+    borderWidth: 2,
+    borderColor: '#C3F0CF',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-    borderWidth: 2,
-    borderColor: '#C3F0CF',
   },
   title: {
     fontSize: 20,
     fontWeight: '800',
     color: THEME.colors.text,
-    marginBottom: 8,
+    marginBottom: 10,
     textAlign: 'center',
   },
-  subtitle: {
+  body: {
     fontSize: 14,
     color: THEME.colors.textSecondary,
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: 21,
     marginBottom: 20,
   },
-  instructionsToggle: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  instructionsToggleText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: THEME.colors.primary,
-  },
-  instructionsBox: {
+  infoBox: {
     width: '100%',
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
-    gap: 12,
+    padding: 14,
+    gap: 10,
+    marginBottom: 24,
   },
-  instructionsTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: THEME.colors.text,
-    marginBottom: 8,
-  },
-  step: {
-    flexDirection: 'row',
-    gap: 12,
-    alignItems: 'flex-start',
-  },
-  stepNumber: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: THEME.colors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepNumberText: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  stepText: {
-    flex: 1,
-    fontSize: 13,
-    color: THEME.colors.text,
-    lineHeight: 20,
-  },
-  stepPath: {
-    fontSize: 11,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    color: THEME.colors.textSecondary,
-    backgroundColor: '#fff',
-    padding: 6,
-    borderRadius: 4,
-    marginTop: 4,
-  },
-  noteBox: {
-    flexDirection: 'row',
-    gap: 8,
-    backgroundColor: '#FEF3C7',
-    padding: 10,
-    borderRadius: 8,
-    alignItems: 'flex-start',
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-  noteText: {
-    flex: 1,
-    fontSize: 11,
-    color: '#78350F',
-    lineHeight: 16,
-  },
-  button: {
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowText: { flex: 1, fontSize: 13, color: THEME.colors.text, lineHeight: 18 },
+  btn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     backgroundColor: THEME.colors.primary,
     paddingVertical: 16,
-    paddingHorizontal: 32,
-    borderRadius: 30,
+    paddingHorizontal: 28,
+    borderRadius: 999,
     width: '100%',
-    marginBottom: 16,
+    elevation: 3,
     shadowColor: THEME.colors.primary,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.28,
     shadowRadius: 8,
-    elevation: 4,
   },
-  buttonDisabled: {
-    opacity: 0.6,
-  },
-  buttonText: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: '#fff',
-  },
-  whyBox: {
+  btnDim: { opacity: 0.65 },
+  btnText: { fontSize: 16, fontWeight: '800', color: '#fff' },
+  btnSecondary: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    backgroundColor: '#E7F8EC',
+    paddingVertical: 14,
+    paddingHorizontal: 28,
+    borderRadius: 999,
     width: '100%',
-    backgroundColor: '#F3F4F6',
-    borderRadius: 10,
-    padding: 12,
-    borderLeftWidth: 3,
-    borderLeftColor: THEME.colors.primary,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: '#C3F0CF',
   },
-  whyTitle: {
+  btnSecondaryText: { fontSize: 14, fontWeight: '800', color: THEME.colors.primary },
+  hint: {
+    marginTop: 16,
     fontSize: 12,
-    fontWeight: '700',
-    color: THEME.colors.text,
-    marginBottom: 4,
-  },
-  whyText: {
-    fontSize: 11,
     color: THEME.colors.textSecondary,
-    lineHeight: 16,
+    textAlign: 'center',
+    lineHeight: 17,
   },
 });

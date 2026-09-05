@@ -1,10 +1,10 @@
-import React, { useCallback, useState } from 'react';
-import { View, Text, StyleSheet, Platform, ScrollView, Pressable, Alert, ActivityIndicator } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, Platform, Pressable, Alert, ActivityIndicator, AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { listStatuses, StatusFile, saveMultipleToGallery } from '../../lib/statusService';
-import { hasSAFPermission, hasMediaLibraryPermission } from '../../lib/storageAccess';
+import { hasStoragePermission, hasMediaLibraryPermission, hasSAFPermission, requestMediaLibraryPermission, requestSAFPermission, openAllFilesAccessSettings } from '../../lib/storageAccess';
 import { StatusGrid } from '../../components/StatusGrid';
 import { PreviewModal } from '../../components/PreviewModal';
 import { PermissionGate } from '../../components/PermissionGate';
@@ -12,50 +12,119 @@ import { PermissionGate } from '../../components/PermissionGate';
 export default function ImagesScreen() {
   const [files, setFiles] = useState<StatusFile[]>([]);
   const [hasAccess, setHasAccess] = useState(false);
+  const [accessChecked, setAccessChecked] = useState(false);
   const [selected, setSelected] = useState<StatusFile | null>(null);
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [savingAll, setSavingAll] = useState(false);
+  const [fixingAccess, setFixingAccess] = useState(false);
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
-  async function checkAccess() {
+  const checkAccess = useCallback(async (): Promise<boolean> => {
     if (Platform.OS !== 'android') {
-      setHasAccess(true);
-      return;
+      if (mounted.current) {
+        setHasAccess(true);
+        setAccessChecked(true);
+      }
+      return true;
     }
-    
-    try {
-      const granted = await hasSAFPermission();
-      setHasAccess(granted);
-    } catch {
-      setHasAccess(false);
-    }
-  }
 
-  async function loadStatuses() {
+    try {
+      const [direct, saf] = await Promise.all([hasStoragePermission(), hasSAFPermission()]);
+      const ok = direct || saf;
+      if (mounted.current) {
+        setHasAccess(ok);
+        setAccessChecked(true);
+        if (!ok) setFiles([]);
+      }
+      return ok;
+    } catch {
+      if (mounted.current) {
+        setHasAccess(false);
+        setAccessChecked(true);
+        setFiles([]);
+      }
+      return false;
+    }
+  }, []);
+
+  const loadStatuses = useCallback(async () => {
     if (Platform.OS !== 'android') return;
-    
-    setLoading(true);
+
+    if (mounted.current) setLoading(true);
     try {
       const statuses = await listStatuses('image');
-      setFiles(statuses);
+      if (mounted.current) setFiles(statuses);
     } catch (error) {
       console.error('Failed to load statuses:', error);
-      setFiles([]);
+      if (mounted.current) setFiles([]);
     } finally {
+      if (mounted.current) setLoading(false);
+    }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    const ok = await checkAccess();
+    if (ok) {
+      await loadStatuses();
+    } else if (mounted.current) {
       setLoading(false);
     }
-  }
+  }, [checkAccess, loadStatuses]);
 
-  async function refresh() {
-    await checkAccess();
-    await loadStatuses();
-  }
+  const onPullRefresh = useCallback(async () => {
+    if (!mounted.current) return;
+    setRefreshing(true);
+    try {
+      const ok = await checkAccess();
+      if (ok) {
+        const statuses = await listStatuses('image');
+        if (mounted.current) setFiles(statuses);
+      }
+    } catch (error) {
+      console.error('Failed to load statuses:', error);
+      if (mounted.current) setFiles([]);
+    } finally {
+      if (mounted.current) setRefreshing(false);
+    }
+  }, [checkAccess]);
 
   useFocusEffect(
     useCallback(() => {
       refresh();
-    }, [])
+    }, [refresh])
   );
+
+  // Re-check when returning from system Settings / folder picker — makes the
+  // grant stick instead of showing the permission gate again.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') {
+        refresh();
+      }
+    });
+    return () => sub.remove();
+  }, [refresh]);
+
+  async function handleRepickFolder() {
+    if (fixingAccess) return;
+    setFixingAccess(true);
+    try {
+      const { granted } = await requestSAFPermission();
+      if (granted) {
+        await refresh();
+      }
+    } finally {
+      setFixingAccess(false);
+    }
+  }
 
   const isSelection = selection.size > 0;
   
@@ -74,19 +143,25 @@ export default function ImagesScreen() {
   const clearSelection = () => setSelection(new Set());
   const selectedFiles = files.filter((f) => selection.has(f.uri));
 
-  async function handleSaveSelected() {
-    if (selectedFiles.length === 0) return;
-    
-    // Check media library permission first
+  async function ensureMediaPermission(): Promise<boolean> {
     const hasMediaPerm = await hasMediaLibraryPermission();
-    if (!hasMediaPerm) {
+    if (hasMediaPerm) return true;
+    // Actually request it instead of just telling the user to go to Settings
+    const req = await requestMediaLibraryPermission();
+    if (!req) {
       Alert.alert(
         'Permission Required',
-        'Please allow photo library access to save images.',
+        'Please allow photo library access to save images. You can enable it in Settings.',
         [{ text: 'OK' }]
       );
-      return;
     }
+    return req;
+  }
+
+  async function handleSaveSelected() {
+    if (selectedFiles.length === 0) return;
+
+    if (!(await ensureMediaPermission())) return;
 
     setSavingAll(true);
     try {
@@ -107,17 +182,8 @@ export default function ImagesScreen() {
 
   async function handleSaveAll() {
     if (files.length === 0) return;
-    
-    // Check media library permission first
-    const hasMediaPerm = await hasMediaLibraryPermission();
-    if (!hasMediaPerm) {
-      Alert.alert(
-        'Permission Required',
-        'Please allow photo library access to save images.',
-        [{ text: 'OK' }]
-      );
-      return;
-    }
+
+    if (!(await ensureMediaPermission())) return;
 
     setSavingAll(true);
     try {
@@ -153,11 +219,15 @@ export default function ImagesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      {/* Show permission gate if no access */}
-      {!hasAccess && <PermissionGate onGranted={refresh} />}
-
-      {/* Show content if we have access */}
-      {hasAccess && (
+      {/* Still checking permissions — avoid flashing the gate on every start */}
+      {!accessChecked ? (
+        <View style={s.loadingContainer}>
+          <ActivityIndicator size="large" color={THEME.colors.primary} />
+          <Text style={s.loadingText}>Checking access...</Text>
+        </View>
+      ) : !hasAccess ? (
+        <PermissionGate onGranted={refresh} />
+      ) : (
         <>
           {/* Header with stats and refresh */}
           <View style={s.header}>
@@ -200,7 +270,7 @@ export default function ImagesScreen() {
                   </>
                 ) : (
                   <>
-                    <Text style={s.hintText}>Long-press to select multiple</Text>
+                    <Text style={s.hintText}>Tap to view • long-press or ✓ to select</Text>
                     <Pressable
                       onPress={handleSaveAll}
                       disabled={savingAll}
@@ -230,10 +300,33 @@ export default function ImagesScreen() {
               <StatusGrid
                 data={files}
                 onPress={setSelected}
+                onLongPress={toggleSelect}
                 onToggleSelect={toggleSelect}
                 selectedIds={selection}
                 selectionMode={isSelection}
-                emptyText="No image statuses found. View some statuses in WhatsApp, then pull to refresh."
+                refreshing={refreshing || loading}
+                onRefresh={onPullRefresh}
+                emptyText="No image statuses found. View some statuses in WhatsApp, then pull to refresh. If you already picked a folder, you may have picked the wrong level — try picking the .Statuses folder again."
+                emptyAction={
+                  <View style={{ gap: 8 }}>
+                    <Pressable
+                      onPress={handleRepickFolder}
+                      disabled={fixingAccess}
+                      style={[s.fixBtn, fixingAccess && { opacity: 0.6 }]}
+                    >
+                      {fixingAccess ? (
+                        <ActivityIndicator color={THEME.colors.primary} size="small" />
+                      ) : (
+                        <Ionicons name="folder-open-outline" size={16} color={THEME.colors.primary} />
+                      )}
+                      <Text style={s.fixBtnText}>Pick .Statuses folder again</Text>
+                    </Pressable>
+                    <Pressable onPress={() => openAllFilesAccessSettings()} style={s.fixBtnGhost}>
+                      <Ionicons name="settings-outline" size={15} color={THEME.colors.textSecondary} />
+                      <Text style={s.fixBtnGhostText}>Open "All files access" settings</Text>
+                    </Pressable>
+                  </View>
+                }
               />
             )}
           </View>
@@ -376,4 +469,28 @@ const s = StyleSheet.create({
     fontSize: 14,
     color: THEME.colors.textSecondary,
   },
+  fixBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#E7F8EC',
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#C3F0CF',
+  },
+  fixBtnText: { color: THEME.colors.primary, fontSize: 13.5, fontWeight: '800' },
+  fixBtnGhost: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#fff',
+    paddingVertical: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: THEME.colors.border,
+  },
+  fixBtnGhostText: { color: THEME.colors.textSecondary, fontSize: 12.5, fontWeight: '700' },
 });

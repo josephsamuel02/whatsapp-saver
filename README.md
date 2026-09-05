@@ -8,7 +8,9 @@ A React Native app built with Expo that allows you to save WhatsApp and WhatsApp
 - ✅ Save individual or multiple statuses to your gallery
 - ✅ Share statuses directly to WhatsApp or other apps
 - ✅ Support for WhatsApp and WhatsApp Business
-- ✅ Works on Android 11+ using Storage Access Framework (SAF)
+- ✅ Real video thumbnails in the grid
+- ✅ Settings tab with permission status, help & privacy policy
+- ✅ Works on Android 11+ via All-files access OR SAF folder picker
 - ✅ Multi-select functionality with long-press
 - ✅ Automatic status scanning and refresh
 
@@ -54,12 +56,19 @@ A React Native app built with Expo that allows you to save WhatsApp and WhatsApp
 
 ### First Time Setup
 
+Two ways to grant access (either one works):
+
+**Option A — All files access (fastest, sideloaded builds):**
 1. **Open the app** - You'll see a permission screen
-2. **Tap "Select Folder"** - This opens the Android folder picker
-3. **Navigate to the WhatsApp Status folder:**
+2. **Tap "Allow"** - The system "All files access" page opens
+3. **Enable the toggle** for Status Saver, then come back
+
+**Option B — Pick the .Statuses folder (Play-Store-friendly):**
+1. **Tap "Or pick the .Statuses folder"**
+2. **Navigate to the WhatsApp Status folder:**
    - For WhatsApp: `Android → media → com.whatsapp → WhatsApp → Media → .Statuses`
    - For WhatsApp Business: `Android → media → com.whatsapp.w4b → WhatsApp Business → Media → .Statuses`
-4. **Tap "Use this folder"** or "Allow" to grant access
+3. **Tap "Use this folder"** or "Allow" to grant access
 
 > **Note:** The `.Statuses` folder may be hidden. Look for "Show hidden files" option in your file picker.
 
@@ -113,11 +122,15 @@ This app uses **Storage Access Framework (SAF)** which:
 
 ### Key Files
 
-- `lib/statusService.ts` - Status file scanning and management using SAF
-- `lib/storageAccess.ts` - Permission handling and SAF utilities
-- `components/PermissionGate.tsx` - Permission request UI with instructions
-- `app/(tabs)/images.tsx` - Image statuses tab
-- `app/(tabs)/videos.tsx` - Video statuses tab
+- `lib/statusService.ts` - Status scanning: direct storage (fast path) + SAF fallback
+- `lib/storageAccess.ts` - All-files-access intent + SAF folder-picker helpers
+- `components/PermissionGate.tsx` - Permission UI with both setup options
+- `components/StatusGrid.tsx` - Grid with real video thumbnails
+- `components/PreviewModal.tsx` - Full-screen preview, save/share/repost
+- `app/(tabs)/images.tsx` - Image statuses tab (pull-to-refresh, multi-select)
+- `app/(tabs)/videos.tsx` - Video statuses tab (pull-to-refresh, multi-select)
+- `app/(tabs)/saved.tsx` - Saved album browser
+- `app/(tabs)/settings.tsx` - Permissions status, how-to-use, privacy policy
 
 ## ❓ Troubleshooting
 
@@ -146,6 +159,13 @@ WhatsApp automatically deletes viewed statuses after:
 **Solution:** Save statuses to your gallery before they expire.
 
 ## 🔄 What's Different From Old Version
+
+### Storage access (hybrid, v1.1.0)
+
+The app tries **direct storage scan first** (needs "All files access" —
+best for sideloaded builds), then falls back to **SAF folder grants**
+(Play-Store-compliant — the user picks the `.Statuses` folder once).
+Both are offered on the permission screen.
 
 ### ❌ Old Method (Doesn't Work on Android 11+)
 - Direct file system access to `/storage/emulated/0/WhatsApp/...`
