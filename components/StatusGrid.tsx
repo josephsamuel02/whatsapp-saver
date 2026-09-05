@@ -64,6 +64,7 @@ const GridItem = memo(function GridItem({
 }) {
   const isVideo = item.type === "video";
   const [thumbUri, setThumbUri] = useState<string | null>(null);
+  const [thumbFailed, setThumbFailed] = useState(false);
   const [stagedImageUri, setStagedImageUri] = useState<string | null>(null);
   const [imgFailed, setImgFailed] = useState(false);
 
@@ -76,9 +77,11 @@ const GridItem = memo(function GridItem({
     let cancelled = false;
     if (!isVideo) {
       setThumbUri(null);
+      setThumbFailed(false);
       return;
     }
     setThumbUri(null);
+    setThumbFailed(false);
     (async () => {
       try {
         const { uri } = await VideoThumbnails.getThumbnailAsync(item.uri, { time: 500, quality: 0.6 });
@@ -90,7 +93,9 @@ const GridItem = memo(function GridItem({
         // fall through to staged retry for content:// URIs
       }
       if (!isContentUri(item.uri)) {
-        if (!cancelled) setThumbUri(null);
+        // Direct file that can't be thumbnailed (corrupt/unsupported codec) —
+        // mark failed so we show a fallback icon instead of spinning forever.
+        if (!cancelled) setThumbFailed(true);
         return;
       }
       try {
@@ -98,7 +103,7 @@ const GridItem = memo(function GridItem({
         const { uri } = await VideoThumbnails.getThumbnailAsync(staged, { time: 500, quality: 0.6 });
         if (!cancelled) setThumbUri(uri);
       } catch {
-        if (!cancelled) setThumbUri(null);
+        if (!cancelled) setThumbFailed(true);
       }
     })();
     return () => {
@@ -137,11 +142,11 @@ const GridItem = memo(function GridItem({
         delayLongPress={280}
         style={({ pressed }) => [s.cellPress, pressed && { opacity: 0.85 }]}
       >
-        {isVideo && !thumbUri ? (
+        {isVideo && !thumbUri && !thumbFailed ? (
           <View style={s.thumbFallback}>
             <ActivityIndicator size="small" color={THEME.colors.textMuted} />
           </View>
-        ) : imgFailed ? (
+        ) : imgFailed || thumbFailed ? (
           <View style={s.thumbFallback}>
             <Ionicons
               name={isVideo ? "videocam-outline" : "image-outline"}

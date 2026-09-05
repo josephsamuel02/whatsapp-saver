@@ -20,6 +20,10 @@ import {
   openAllFilesAccessSettings,
   requestSAFPermission,
 } from "../../lib/storageAccess";
+import {
+  diagnoseAccess,
+  type AccessDiagnosis,
+} from "../../lib/statusService";
 
 function PermissionRow({
   icon,
@@ -61,6 +65,8 @@ export default function SettingsScreen() {
   const [saf, setSaf] = useState<boolean | null>(null);
   const [media, setMedia] = useState<boolean | null>(null);
   const [safBusy, setSafBusy] = useState(false);
+  const [diag, setDiag] = useState<AccessDiagnosis | null>(null);
+  const [diagBusy, setDiagBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -108,6 +114,19 @@ export default function SettingsScreen() {
       setSafBusy(false);
     }
   }
+
+  const runDiagnostics = useCallback(async () => {
+    if (diagBusy) return;
+    setDiagBusy(true);
+    try {
+      const result = await diagnoseAccess();
+      setDiag(result);
+    } catch {
+      setDiag(null);
+    } finally {
+      setDiagBusy(false);
+    }
+  }, [diagBusy]);
 
   return (
     <ScrollView
@@ -158,6 +177,98 @@ export default function SettingsScreen() {
           In the picker go to Android → media → com.whatsapp → WhatsApp → Media
           → .Statuses. Enable "Show hidden files" to see it.
         </Text>
+      </View>
+
+      {/* Diagnostics card — ground truth when the grid is empty */}
+      <View style={s.card}>
+        <Text style={s.cardTitle}>Diagnostics</Text>
+        <Text style={s.cardSub}>
+          Empty grid? Run this — it shows exactly what the app can see.
+        </Text>
+        <Text style={s.hint}>
+          The app scans these exact folders first — confirm they exist in
+          your Files app:{"\n"}•
+          /storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/.Statuses
+          {"\n"}• /storage/emulated/0/Android/media/com.whatsapp.w4b/WhatsApp
+          Business/Media/.Statuses
+        </Text>
+        <Pressable
+          onPress={runDiagnostics}
+          disabled={diagBusy}
+          style={[s.pickBtn, diagBusy && { opacity: 0.6 }]}
+        >
+          {diagBusy ? (
+            <ActivityIndicator color={THEME.colors.primary} size="small" />
+          ) : (
+            <Ionicons
+              name="bug-outline"
+              size={16}
+              color={THEME.colors.primary}
+            />
+          )}
+          <Text style={s.pickBtnText}>
+            {diag ? "Re-run diagnostics" : "Run diagnostics"}
+          </Text>
+        </Pressable>
+        {diag && (
+          <View style={{ gap: 8 }}>
+            <View style={s.diagRow}>
+              <Text style={s.diagLabel}>Scan finds</Text>
+              <Text style={s.diagValue}>
+                {diag.totalImages} images • {diag.totalVideos} videos
+              </Text>
+            </View>
+            <View style={s.diagRow}>
+              <Text style={s.diagLabel}>All-files access</Text>
+              <Text style={s.diagValue}>{diag.directAccess ? "Yes" : "No"}</Text>
+            </View>
+            <View style={s.diagRow}>
+              <Text style={s.diagLabel}>Folders granted</Text>
+              <Text style={s.diagValue}>{diag.safGrants.length}</Text>
+            </View>
+            {diag.safGrants.map((g, i) => (
+              <View key={`${g.uri}-${i}`} style={s.diagGrant}>
+                <Text style={s.diagFolder} numberOfLines={2}>
+                  …/{g.folder.split("/").slice(-4).join("/")}
+                </Text>
+                {g.error ? (
+                  <Text style={s.diagError}>Cannot read: {g.error}</Text>
+                ) : (
+                  <Text style={s.diagValue}>
+                    {g.entries} entries • {g.files} status files
+                  </Text>
+                )}
+                {g.samples.length > 0 && (
+                  <Text style={s.diagSamples} numberOfLines={3}>
+                    e.g. {g.samples.join(", ")}
+                  </Text>
+                )}
+              </View>
+            ))}
+            {diag.directProbes
+              .filter((d) => d.exists)
+              .map((d) => (
+                <View key={d.path} style={s.diagRow}>
+                  <Text style={s.diagLabel} numberOfLines={1}>
+                    {d.label}
+                  </Text>
+                  <Text style={s.diagValue}>
+                    {d.error ?? `${d.media} status files`}
+                  </Text>
+                </View>
+              ))}
+            {diag.safGrants.length > 0 &&
+              diag.totalImages === 0 &&
+              diag.totalVideos === 0 && (
+                <Text style={s.hint}>
+                  A folder is granted but no statuses were found inside it.
+                  You may have picked the wrong level (e.g. "Media" with
+                  nothing in it), or the statuses expired (they vanish 24h
+                  after posting — view one in WhatsApp, then refresh).
+                </Text>
+              )}
+          </View>
+        )}
       </View>
 
       {/* How to use card */}
@@ -256,6 +367,25 @@ const s = StyleSheet.create({
     borderColor: "#C3F0CF",
   },
   pickBtnText: { color: THEME.colors.primary, fontSize: 13.5, fontWeight: "800" },
+  diagRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 12,
+  },
+  diagLabel: { flex: 1, fontSize: 13, fontWeight: "700", color: THEME.colors.text },
+  diagValue: { fontSize: 12.5, color: THEME.colors.textSecondary, fontWeight: "600", textAlign: "right" },
+  diagGrant: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    padding: 12,
+    gap: 4,
+  },
+  diagFolder: { fontSize: 12.5, fontWeight: "800", color: THEME.colors.text },
+  diagError: { fontSize: 12, fontWeight: "700", color: THEME.colors.error },
+  diagSamples: { fontSize: 11, color: THEME.colors.textMuted, lineHeight: 15 },
   hint: { fontSize: 11.5, color: THEME.colors.textMuted, lineHeight: 17 },
   stepRow: {
     flexDirection: "row",

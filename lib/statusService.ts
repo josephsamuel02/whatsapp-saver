@@ -53,6 +53,20 @@ function isIgnored(name: string) {
   return name.startsWith('.') || name === 'Thumbs.db';
 }
 
+/**
+ * Every catch block below used to swallow errors silently and just return
+ * an empty array — meaning a real scanning failure (bad metadata read, a
+ * SecurityException, an API mismatch) looked EXACTLY like "no statuses
+ * found". That makes "images/videos aren't showing up" impossible to
+ * diagnose. Route every catch through this so real failures show up in
+ * Metro/logcat during development instead of vanishing.
+ */
+function devWarn(context: string, err?: unknown): void {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
+    console.warn(`[statusService] ${context}`, err);
+  }
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes === 0) return '0 B';
@@ -103,29 +117,46 @@ function scanDir(dirPath: string, label: string, filter?: MediaType): StatusFile
     const dir = new Directory(`file://${encodeURI(cleanPath)}`);
     if (!dir.exists) return [];
 
-    const items = dir.list();
+    let items: Array<Directory | File>;
+    try {
+      items = dir.list();
+    } catch (e) {
+      // dir.exists said true but list() still failed — that's a real
+      // permission/IO problem worth knowing about, not "folder is empty".
+      devWarn(`scanDir: dir.list() threw for ${dirPath}`, e);
+      return [];
+    }
     const out: StatusFile[] = [];
 
     for (const item of items) {
-      if (!(item instanceof File)) continue;
-      const name = item.name;
-      if (isIgnored(name)) continue;
-      const type = classify(name);
-      if (!type) continue;
-      if (filter && type !== filter) continue;
-      out.push({
-        uri: item.uri,
-        name,
-        type,
-        mtime: normalizeMtime(item.modificationTime as unknown as number),
-        size: typeof item.size === 'number' ? item.size : 0,
-        sourceLabel: label,
-        isSAF: false,
-        source: dirPath,
-      });
+      // One bad entry (e.g. a metadata read that throws) must not take the
+      // whole folder's results down with it — previously an exception here
+      // would bubble to the outer catch and discard every file already found.
+      try {
+        if (!(item instanceof File)) continue;
+        const name = item.name;
+        if (isIgnored(name)) continue;
+        const type = classify(name);
+        if (!type) continue;
+        if (filter && type !== filter) continue;
+        out.push({
+          uri: item.uri,
+          name,
+          type,
+          mtime: normalizeMtime(item.modificationTime as unknown as number),
+          size: typeof item.size === 'number' ? item.size : 0,
+          sourceLabel: label,
+          isSAF: false,
+          source: dirPath,
+        });
+      } catch (e) {
+        devWarn(`scanDir: skipping unreadable item in ${dirPath}`, e);
+        continue;
+      }
     }
     return out;
-  } catch {
+  } catch (e) {
+    devWarn(`scanDir: failed for ${dirPath}`, e);
     return [];
   }
 }
@@ -165,8 +196,9 @@ export async function listStatuses(filter?: MediaType): Promise<StatusFile[]> {
   try {
     const safFiles = await listSAFStatuses(filter);
     for (const f of safFiles) push(f);
-  } catch {
+  } catch (e) {
     // SAF listing must never break the direct path
+    devWarn('listStatuses: SAF merge failed', e);
   }
 
   // Sort newest first
@@ -311,12 +343,14 @@ async function listSAFDirectory(
           isSAF: true,
           source: directoryUri,
         });
-      } catch {
+      } catch (e) {
+        devWarn(`listSAFDirectory: skipping unreadable entry in ${directoryUri}`, e);
         continue; // skip unreadable entries
       }
     }
     return files;
-  } catch {
+  } catch (e) {
+    devWarn(`listSAFDirectory: failed for ${directoryUri}`, e);
     return [];
   }
 }
@@ -334,7 +368,15 @@ async function listSAFStatuses(filter?: MediaType): Promise<StatusFile[]> {
       const dirUri = p.directoryUri || p.uri;
       if (!dirUri) continue;
       const label = labelForSAFUri(dirUri);
-      const files = await listSAFDirectory(dirUri, filter, 0, label);
+      let files: StatusFile[];
+      try {
+        files = await listSAFDirectory(dirUri, filter, 0, label);
+      } catch (e) {
+        // One dead grant (revoked folder, deleted path) must not kill the
+        // other grants.
+        devWarn(`listSAFStatuses: grant failed, skipping: ${dirUri}`, e);
+        continue;
+      }
       for (const f of files) {
         if (seenUris.has(f.uri)) continue;
         seenUris.add(f.uri);
@@ -342,9 +384,144 @@ async function listSAFStatuses(filter?: MediaType): Promise<StatusFile[]> {
       }
     }
     return out;
-  } catch {
+  } catch (e) {
+    devWarn('listSAFStatuses: failed', e);
     return [];
   }
+}
+
+// ─── Diagnostics ─────────────────────────────────────────────────────────────
+// Answers "I picked the right folder — why is the grid empty?" with ground
+// truth instead of guesses. Run on demand from Settings → Diagnostics.
+export interface DirectProbe {
+  path: string;
+  label: string;
+  exists: boolean;
+  entries: number;
+  media: number;
+  error?: string;
+}
+
+export interface SAFProbe {
+  /** Raw granted URI (truncated for display by callers). */
+  uri: string;
+  /** Human-readable form of the granted folder, e.g. "…/WhatsApp/Media/.Statuses". */
+  folder: string;
+  entries: number;
+  files: number;
+  samples: string[];
+  error?: string;
+}
+
+export interface AccessDiagnosis {
+  directAccess: boolean;
+  directProbes: DirectProbe[];
+  safGrants: SAFProbe[];
+  totalImages: number;
+  totalVideos: number;
+}
+
+/** Best-effort decode of an SAF tree/document URI into a readable path. */
+export function decodeSAFUri(uri: string): string {
+  try {
+    const last = uri.split('/').pop() || uri;
+    let decoded: string;
+    try {
+      decoded = decodeURIComponent(last);
+    } catch {
+      decoded = last;
+    }
+    // "primary:Android/media/…/.Statuses" or "tree/primary:…"
+    const afterColon = decoded.includes(':')
+      ? decoded.slice(decoded.lastIndexOf(':') + 1)
+      : decoded;
+    return afterColon || decoded;
+  } catch {
+    return uri;
+  }
+}
+
+export async function diagnoseAccess(): Promise<AccessDiagnosis> {
+  const directProbes: DirectProbe[] = [];
+  for (const { path, label } of STATUS_PATHS) {
+    try {
+      const clean = path.replace(/^file:\/\//, '');
+      const dir = new Directory(`file://${encodeURI(clean)}`);
+      if (!dir.exists) {
+        directProbes.push({ path, label, exists: false, entries: 0, media: 0 });
+        continue;
+      }
+      try {
+        const items = dir.list();
+        let media = 0;
+        for (const it of items) {
+          if (!(it instanceof File)) continue;
+          if (isIgnored(it.name)) continue;
+          if (classify(it.name)) media++;
+        }
+        directProbes.push({ path, label, exists: true, entries: items.length, media });
+      } catch (e: any) {
+        directProbes.push({ path, label, exists: true, entries: 0, media: 0, error: 'listed but not readable (permission denied?)' });
+      }
+    } catch (e: any) {
+      directProbes.push({ path, label, exists: false, entries: 0, media: 0, error: e?.message ?? 'probe failed' });
+    }
+  }
+
+  const safGrants: SAFProbe[] = [];
+  try {
+    const SAF = (LegacyFS as any)?.StorageAccessFramework;
+    const permissions: any[] = SAF?.getUriPermissionsAsync ? await SAF.getUriPermissionsAsync() : [];
+    for (const p of Array.isArray(permissions) ? permissions : []) {
+      const dirUri: string | undefined = p.directoryUri || p.uri;
+      if (!dirUri) continue;
+      const folder = decodeSAFUri(dirUri);
+      try {
+        const entries: string[] = await SAF.readDirectoryAsync(dirUri);
+        const samples = (entries || []).slice(0, 5).map((e) => {
+          try {
+            return extractSAFFileName(e) || decodeSAFUri(e);
+          } catch {
+            return '(unreadable entry)';
+          }
+        });
+        let files = 0;
+        try {
+          files = (await listSAFDirectory(dirUri, undefined)).length;
+        } catch {
+          files = 0;
+        }
+        safGrants.push({ uri: dirUri, folder, entries: (entries || []).length, files, samples });
+      } catch (e: any) {
+        safGrants.push({ uri: dirUri, folder, entries: 0, files: 0, samples: [], error: e?.message ?? 'could not read granted folder' });
+      }
+    }
+  } catch {
+    // SAF unavailable — grants list stays empty
+  }
+
+  let totalImages = 0;
+  let totalVideos = 0;
+  try {
+    totalImages = (await listStatuses('image')).length;
+  } catch {
+    totalImages = 0;
+  }
+  try {
+    totalVideos = (await listStatuses('video')).length;
+  } catch {
+    totalVideos = 0;
+  }
+
+  let directAccess = false;
+  try {
+    const { hasStoragePermission } = await import('./storageAccess');
+    directAccess = await hasStoragePermission();
+  } catch {
+    directAccess = false;
+  }
+
+  return { directAccess, directProbes, safGrants, totalImages, totalVideos };
 }
 
 // ─── File preparation (copy to cache so MediaLibrary / Sharing can use it) ───
