@@ -11,7 +11,7 @@
     "splash": {
       "image": "./assets/icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#25D366"
+      "backgroundColor": "#159552"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
@@ -27,7 +27,7 @@
       "versionCode": 2,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#25D366"
+        "backgroundColor": "#159552"
       },
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
