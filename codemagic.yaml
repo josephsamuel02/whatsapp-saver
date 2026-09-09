@@ -14,7 +14,6 @@ workflows:
       java: 17
       vars:
         PACKAGE_NAME: "com.statussaver.app"
-        JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
 
     cache:
       cache_paths:
