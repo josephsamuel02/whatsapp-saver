@@ -1,0 +1,62 @@
+# codemagic.yaml — Status Saver for WhatsApp
+# Project:  Status Saver for WhatsApp v1.1.0 (slug: status-saver, package: com.statussaver.app, versionCode: 2)
+# Stack:    Expo SDK ~54.0.37 / RN 0.81.5 / React 19.1 / expo-router ~6.0.24 / New Architecture
+# No EAS needed. Native android/ is regenerated on CI via `expo prebuild --clean`
+# (repo .gitignore already ignores /android/).
+
+workflows:
+  android-apk:
+    name: Status Saver Android APK
+    max_build_duration: 60
+    instance_type: linux_x2
+
+    environment:
+      node: 20
+      java: 17
+      vars:
+        PACKAGE_NAME: "com.statussaver.app"
+        JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
+
+    cache:
+      cache_paths:
+        - $CM_BUILD_DIR/node_modules
+        - ~/.gradle/wrapper
+        - ~/.gradle/caches
+
+    scripts:
+      - name: Versions check
+        script: |
+          node -v
+          npm -v
+          java -version
+          npx expo --version
+
+      - name: Install dependencies
+        script: |
+          npm ci
+
+      - name: Expo prebuild (regenerate android/)
+        script: |
+          npx expo prebuild --platform android --clean --non-interactive
+          # Applies config plugins:
+          #  - expo-router (file-based routing in ./app)
+          #  - expo-media-library (gallery save permissions)
+          #  - expo-video (status video playback)
+
+      - name: Set Android SDK location
+        script: |
+          echo "sdk.dir=$ANDROID_SDK_ROOT" > "$CM_BUILD_DIR/android/local.properties"
+
+      - name: Build release APK
+        script: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleRelease --parallel --max-workers=2
+
+      - name: List outputs
+        script: |
+          find android/app/build/outputs -name "*.apk" -o -name "output-metadata.json" | head -20
+
+    artifacts:
+      - android/app/build/outputs/**/*.apk
+      - android/app/build/outputs/**/output-metadata.json
