@@ -3,6 +3,7 @@ import { Directory, File } from 'expo-file-system';
 import * as LegacyFS from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import * as IntentLauncher from 'expo-intent-launcher';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type MediaType = 'image' | 'video';
@@ -696,13 +697,52 @@ export async function shareFile(fileUri: string, fileName: string): Promise<void
   }
 }
 
-export async function shareToWhatsApp(fileUri: string, fileName: string): Promise<void> {
-  if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
+export async function shareToWhatsApp(
+  fileUri: string,
+  fileName: string,
+  sourceLabel?: string,
+  source?: string
+): Promise<void> {
+  const mimeType = /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
+  const business = isBusinessSource(sourceLabel, source);
+  const targetPackage = business ? 'com.whatsapp.w4b' : 'com.whatsapp';
+
   const local = await prepareFile(fileUri, fileName);
   try {
-    const mimeType = /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
+    // Android: try to open the right WhatsApp directly.
+    if (Platform.OS === 'android') {
+      try {
+        let contentUri = local;
+        try {
+          const cUri = await (LegacyFS as any).getContentUriAsync?.(local);
+          if (typeof cUri === 'string' && cUri.length > 0) contentUri = cUri;
+        } catch {
+          // fall back to file:// — Intent may still resolve on some OEMs
+        }
+        await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
+          data: contentUri,
+          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
+          type: mimeType,
+          packageName: targetPackage,
+          extra: {
+            'android.intent.extra.STREAM': contentUri,
+          } as any,
+        });
+        return;
+      } catch {
+        // Direct open failed (app not installed, no handler, bad URI) —
+        // fall through to the system share sheet below.
+      }
+    }
+    if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
     await Sharing.shareAsync(local, { dialogTitle: 'Share to WhatsApp', mimeType });
   } finally {
     await deleteSilent(local);
   }
+}
+
+/** True if the status came from WhatsApp Business (vs regular WhatsApp). */
+export function isBusinessSource(sourceLabel?: string, source?: string): boolean {
+  const probe = `${sourceLabel ?? ''} ${source ?? ''}`;
+  return /business|w4b/i.test(probe);
 }

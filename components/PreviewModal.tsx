@@ -10,19 +10,18 @@ import {
   Alert,
   ScrollView,
   Dimensions,
+  FlatList,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
 import { THEME } from "../constants/theme";
 import type { StatusFile } from "../lib/statusService";
-import { saveToGallery, shareFile, shareToWhatsApp, formatBytes, formatDate, ensureLocalUri, isContentUri } from "../lib/statusService";
+import { saveToGallery, shareFile, shareToWhatsApp, formatBytes, ensureLocalUri, isContentUri } from "../lib/statusService";
 
 const W = Dimensions.get("window").width;
 const H = Dimensions.get("window").height;
 
-// Isolated video component so hooks are never conditional
-// SAF content:// URIs can't be played directly — stage to file:// first.
-function VideoPreview({ uri, name }: { uri: string; name: string }) {
+function VideoPreview({ uri, name, active }: { uri: string; name: string; active: boolean }) {
   const [playUri, setPlayUri] = useState<string | null>(
     isContentUri(uri) ? null : uri
   );
@@ -66,26 +65,34 @@ function VideoPreview({ uri, name }: { uri: string; name: string }) {
     );
   }
 
-  return <VideoPlayerInner uri={playUri} />;
+  return <VideoPlayerInner uri={playUri} active={active} />;
 }
 
-function VideoPlayerInner({ uri }: { uri: string }) {
+function VideoPlayerInner({ uri, active }: { uri: string; active: boolean }) {
   const player = useVideoPlayer(uri, (p: any) => {
     p.loop = false;
     p.muted = false;
   });
 
   useEffect(() => {
-    let t: ReturnType<typeof setTimeout>;
-    // Autoplay after player ready
-    t = setTimeout(() => {
-      try { player.play(); } catch {}
-    }, 320);
+    if (active) {
+      const t = setTimeout(() => {
+        try { player.play(); } catch {}
+      }, 320);
+      return () => {
+        clearTimeout(t);
+        try { player.pause(); } catch {}
+      };
+    } else {
+      try { player.pause(); } catch {}
+    }
+  }, [player, uri, active]);
+
+  useEffect(() => {
     return () => {
-      clearTimeout(t);
       try { player.pause(); } catch {}
     };
-  }, [player, uri]);
+  }, [player]);
 
   return (
     <VideoView
@@ -99,7 +106,6 @@ function VideoPlayerInner({ uri }: { uri: string }) {
   );
 }
 
-// SAF images sometimes fail to render straight from content:// — retry via cache.
 function ImagePreview({ uri, name }: { uri: string; name: string }) {
   const [src, setSrc] = useState(uri);
   const [failed, setFailed] = useState(false);
@@ -156,22 +162,33 @@ function ImagePreview({ uri, name }: { uri: string; name: string }) {
   );
 }
 
-export function PreviewModal({
-  file,
-  onClose,
-}: {
-  file: StatusFile | null;
-  onClose: () => void;
-}) {
+type PreviewProps =
+  | { file: StatusFile | null; onClose: () => void; files?: undefined; index?: undefined }
+  | { files: StatusFile[]; index: number | null; onClose: () => void; file?: undefined; onIndexChange?: (i: number) => void };
+
+export function PreviewModal(props: PreviewProps) {
+  const files: StatusFile[] = (props as any).files ?? (((props as any).file ? [(props as any).file] : []));
+  const propIndex: number | null =
+    (props as any).index !== undefined ? (props as any).index : files.length > 0 ? 0 : null;
+
+  const [current, setCurrent] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [showInfo, setShowInfo] = useState(false);
   const [savedPulse, setSavedPulse] = useState(false);
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const listRef = useRef<FlatList>(null);
 
-  const fileUri = file?.uri;
   useEffect(() => {
-    if (fileUri) setShowInfo(false);
-  }, [fileUri]);
+    if (propIndex !== null && propIndex !== undefined) setCurrent(propIndex);
+  }, [propIndex]);
+
+  useEffect(() => {
+    if (propIndex !== null && propIndex !== undefined && listRef.current && files.length > 0) {
+      setTimeout(() => {
+        try { listRef.current?.scrollToIndex({ index: propIndex, animated: false }); } catch {}
+      }, 50);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [propIndex]);
 
   useEffect(() => {
     return () => {
@@ -179,6 +196,8 @@ export function PreviewModal({
     };
   }, []);
 
+  if (propIndex === null || propIndex === undefined || files.length === 0) return null;
+  const file = files[current] ?? files[propIndex] ?? files[0];
   if (!file) return null;
 
   async function handleSave() {
@@ -198,79 +217,61 @@ export function PreviewModal({
     try { await shareFile(file!.uri, file!.name); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
   }
   async function handleShareToWhatsApp() {
-    try { await shareToWhatsApp(file!.uri, file!.name); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
+    try { await shareToWhatsApp(file!.uri, file!.name, (file as any).sourceLabel, (file as any).source); } catch (e: any) { Alert.alert("Share failed", e?.message ?? "Try again"); }
   }
 
   const isVideo = file.type === "video";
+  const visible = propIndex !== null;
 
   return (
-    <Modal visible={!!file} animationType="fade" presentationStyle="fullScreen" onRequestClose={onClose} statusBarTranslucent>
+    <Modal visible={visible} animationType="fade" presentationStyle="fullScreen" onRequestClose={props.onClose} statusBarTranslucent>
       <View style={styles.root}>
-        {/* Media */}
-        <View style={styles.mediaWrap}>
-          {isVideo ? (
-            <VideoPreview uri={file.uri} name={file.name} />
-          ) : (
-            <ImagePreview uri={file.uri} name={file.name} />
+        <FlatList
+          ref={listRef}
+          data={files}
+          keyExtractor={(i) => i.uri}
+          horizontal
+          pagingEnabled
+          showsHorizontalScrollIndicator={false}
+          initialScrollIndex={propIndex ?? 0}
+          getItemLayout={(_, idx) => ({ length: W, offset: W * idx, index: idx })}
+          onMomentumScrollEnd={(e) => {
+            const idx = Math.round(e.nativeEvent.contentOffset.x / W);
+            if (idx >= 0 && idx < files.length) {
+              setCurrent(idx);
+              (props as any).onIndexChange?.(idx);
+            }
+          }}
+          renderItem={({ item, index: idx }) => (
+            <View style={{ width: W, height: H }}>
+              <View style={styles.mediaWrap}>
+                {item.type === "video" ? (
+                  <VideoPreview uri={item.uri} name={item.name} active={idx === current} />
+                ) : (
+                  <ImagePreview uri={item.uri} name={item.name} />
+                )}
+              </View>
+            </View>
           )}
-        </View>
+        />
 
-        {/* Top Bar */}
         <View style={styles.topBar}>
-          <Pressable onPress={onClose} style={styles.iconBtn} hitSlop={10}>
-            <Ionicons name="close" size={22} color="#fff" />
+          <Pressable onPress={props.onClose} style={styles.iconBtn} hitSlop={10}>
+            <Ionicons name="arrow-back" size={22} color="#fff" />
           </Pressable>
           <View style={styles.titleBox}>
-            <Text style={styles.fileName} numberOfLines={1}>{file.name}</Text>
-            <Text style={styles.fileMeta} numberOfLines={1}>{file.sourceLabel} • {formatBytes(file.size)} • {formatDate(file.mtime)}</Text>
+            <Text style={styles.fileMeta} numberOfLines={1}>{formatBytes(file.size)}</Text>
           </View>
-          <Pressable onPress={() => setShowInfo((v) => !v)} style={styles.iconBtn} hitSlop={10}>
-            <Ionicons name={showInfo ? "information-circle" : "information-circle-outline"} size={22} color="#fff" />
-          </Pressable>
+          <View style={{ width: 38 }} />
         </View>
 
-        {/* Info sheet */}
-        {showInfo && (
-          <View style={styles.infoSheet}>
-            <View style={styles.infoRow}>
-              <Ionicons name="document-outline" size={16} color="#667781" />
-              <Text style={styles.infoLabel}>File</Text>
-              <Text style={styles.infoValue} numberOfLines={1}>{file.name}</Text>
-            </View>
-            <View style={styles.divider} />
-            <View style={styles.infoRow}>
-              <Ionicons name="folder-outline" size={16} color="#667781" />
-              <Text style={styles.infoLabel}>Source</Text>
-              <Text style={styles.infoValue}>{file.sourceLabel}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="resize-outline" size={16} color="#667781" />
-              <Text style={styles.infoLabel}>Size</Text>
-              <Text style={styles.infoValue}>{formatBytes(file.size)}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="time-outline" size={16} color="#667781" />
-              <Text style={styles.infoLabel}>Saved on</Text>
-              <Text style={styles.infoValue}>{file.mtime ? new Date(file.mtime).toLocaleString() : "—"}</Text>
-            </View>
-            <View style={styles.infoRow}>
-              <Ionicons name="videocam-outline" size={16} color="#667781" />
-              <Text style={styles.infoLabel}>Type</Text>
-              <Text style={styles.infoValue}>{isVideo ? "Video" : "Image"} • {file.isSAF ? "via granted folder" : "direct storage"}</Text>
-            </View>
-            <Text style={styles.infoHint}>Tip: pinch to zoom images • videos play with sound</Text>
-          </View>
-        )}
-
-        {/* Saved pulse */}
         {savedPulse && (
           <View style={styles.savedToast}>
             <Ionicons name="checkmark-circle" size={18} color="#fff" />
-            <Text style={styles.savedToastText}>Saved to Gallery • Album: Status Saver</Text>
+            <Text style={styles.savedToastText}>Saved to Gallery</Text>
           </View>
         )}
 
-        {/* Bottom actions */}
         <View style={styles.bottomBar}>
           <Pressable onPress={handleShare} style={styles.actionBtn} android_ripple={{ color: "rgba(255,255,255,0.12)" }}>
             <Ionicons name="share-outline" size={19} color="#fff" />
@@ -327,9 +328,8 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.12)",
     borderWidth: 1, borderColor: "rgba(255,255,255,0.10)",
   },
-  titleBox: { flex: 1, gap: 2 },
-  fileName: { color: "#fff", fontSize: 13.5, fontWeight: "700", letterSpacing: -0.1 },
-  fileMeta: { color: "rgba(255,255,255,0.78)", fontSize: 11, fontWeight: "500" },
+  titleBox: { flex: 1, alignItems: "center" },
+  fileMeta: { color: "rgba(255,255,255,0.85)", fontSize: 12, fontWeight: "600" },
   bottomBar: {
     position: "absolute",
     bottom: 0, left: 0, right: 0,
@@ -353,29 +353,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.12)",
   },
-  repostBtn: { backgroundColor: "rgba(37,211,102,0.18)", borderColor: "rgba(37,211,102,0.28)" },
+  repostBtn: { backgroundColor: "rgba(21,149,82,0.35)", borderColor: "rgba(21,149,82,0.4)" },
   saveBtn: { backgroundColor: THEME.colors.primary, borderColor: THEME.colors.primaryDark },
   actionText: { color: "#fff", fontWeight: "800", fontSize: 13.5, letterSpacing: 0.15 },
-  infoSheet: {
-    position: "absolute",
-    top: 92, left: 12, right: 12,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
-    gap: 10,
-    elevation: 6,
-    shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 16, shadowOffset: { width: 0, height: 8 },
-  },
-  infoRow: { flexDirection: "row", alignItems: "center", gap: 10 },
-  infoLabel: { width: 62, fontSize: 12.5, fontWeight: "700", color: THEME.colors.textSecondary },
-  infoValue: { flex: 1, fontSize: 12.5, color: THEME.colors.text, fontWeight: "600" },
-  divider: { height: StyleSheet.hairlineWidth, backgroundColor: THEME.colors.border, marginVertical: 2 },
-  infoHint: { fontSize: 11, color: THEME.colors.textMuted, marginTop: 4, lineHeight: 15 },
   savedToast: {
     position: "absolute",
     bottom: 92, alignSelf: "center",
     flexDirection: "row", alignItems: "center", gap: 8,
-    backgroundColor: "#1ea54a",
+    backgroundColor: "#159552",
     paddingHorizontal: 14, paddingVertical: 10,
     borderRadius: 999,
     elevation: 4,

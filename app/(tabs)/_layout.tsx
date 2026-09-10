@@ -1,33 +1,123 @@
-import { Tabs } from "expo-router";
+import { useState } from "react";
+import { Tabs, useRouter } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
-import { View, Text } from "react-native";
+import { View, Text, Pressable, Modal, StyleSheet } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { THEME } from "../../constants/theme";
 
+function TopMenu() {
+  const [open, setOpen] = useState(false);
+  const router = useRouter();
+
+  function go(path: "/(tabs)/settings" | "/(tabs)/about") {
+    setOpen(false);
+    router.push(path as any);
+  }
+
+  return (
+    <View>
+      <Pressable
+        onPress={() => setOpen((v) => !v)}
+        hitSlop={12}
+        style={{
+          width: 38,
+          height: 38,
+          borderRadius: 19,
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
+      </Pressable>
+      <Modal
+        visible={open}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setOpen(false)}
+      >
+        <Pressable style={m.overlay} onPress={() => setOpen(false)}>
+          <View style={m.menu}>
+            <Pressable
+              onPress={() => go("/(tabs)/settings")}
+              style={({ pressed }) => [m.item, pressed && { opacity: 0.6 }]}
+            >
+              <Ionicons name="settings-outline" size={18} color={THEME.colors.text} />
+              <Text style={m.itemText}>Settings</Text>
+            </Pressable>
+            <View style={m.div} />
+            <Pressable
+              onPress={() => go("/(tabs)/about")}
+              style={({ pressed }) => [m.item, pressed && { opacity: 0.6 }]}
+            >
+              <Ionicons name="information-circle-outline" size={18} color={THEME.colors.text} />
+              <Text style={m.itemText}>About Us</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
+const m = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.18)", alignItems: "flex-end", paddingTop: 56, paddingRight: 12 },
+  menu: { backgroundColor: "#fff", borderRadius: 12, paddingVertical: 6, minWidth: 170, elevation: 6, shadowColor: "#000", shadowOpacity: 0.18, shadowRadius: 12, shadowOffset: { width: 0, height: 4 } },
+  item: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 12, paddingHorizontal: 16 },
+  itemText: { fontSize: 14, fontWeight: "700", color: "#111B21" },
+  div: { height: 1, backgroundColor: "#E9EDEF" },
+});
+
+function HeaderTitle({ icon, label }: { icon: any; label: string }) {
+  return (
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+      <View
+        style={{
+          width: 28,
+          height: 28,
+          borderRadius: 14,
+          backgroundColor: "rgba(255,255,255,0.18)",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <Ionicons name={icon} size={16} color="#fff" />
+      </View>
+      <Text style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}>
+        {label}
+      </Text>
+    </View>
+  );
+}
+
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+  const bottomPad = Math.max(insets.bottom, 10);
+
   return (
     <Tabs
       screenOptions={{
-        headerStyle: { backgroundColor: "#25D366" },
+        headerStyle: { backgroundColor: THEME.colors.primary },
         headerTintColor: "#fff",
         headerTitleStyle: { fontWeight: "800", fontSize: 16 },
-        tabBarActiveTintColor: "#25D366",
+        headerRight: () => <TopMenu />,
+        tabBarActiveTintColor: THEME.colors.primary,
         tabBarInactiveTintColor: THEME.colors.textMuted,
         tabBarStyle: {
           backgroundColor: "#ffffff",
           borderTopWidth: 1,
           borderTopColor: THEME.colors.border,
-          height: 92,
-          paddingBottom: 16,
-          paddingTop: 10,
+          height: 60 + bottomPad,
+          paddingBottom: bottomPad,
+          paddingTop: 8,
           elevation: 12,
           shadowColor: "#000",
           shadowOpacity: 0.12,
           shadowRadius: 12,
           shadowOffset: { width: 0, height: -4 },
         },
-        tabBarLabelStyle: { fontSize: 13, fontWeight: "800", marginTop: 4, letterSpacing: 0.2 },
-        tabBarItemStyle: { paddingVertical: 4 },
-        tabBarActiveBackgroundColor: "rgba(37,211,102,0.12)",
+        tabBarLabelStyle: { fontSize: 12, fontWeight: "800", marginTop: 2, letterSpacing: 0.2 },
+        tabBarItemStyle: { paddingVertical: 2 },
+        tabBarActiveBackgroundColor: "rgba(21,149,82,0.10)",
         headerTitleAlign: "left",
         headerShadowVisible: false,
       }}
@@ -36,30 +126,10 @@ export default function TabsLayout() {
         name="images"
         options={{
           title: "Images",
-          headerTitle: () => (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: "rgba(255,255,255,0.18)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="images" size={16} color="#fff" />
-              </View>
-              <Text
-                style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
-              >
-                Images
-              </Text>
-            </View>
-          ),
+          headerTitle: () => <HeaderTitle icon="images" label="Images" />,
           tabBarLabel: "Images",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons name={focused ? "images" : "images-outline"} size={30} color={color} />
+            <Ionicons name={focused ? "images" : "images-outline"} size={24} color={color} />
           ),
         }}
       />
@@ -67,34 +137,10 @@ export default function TabsLayout() {
         name="videos"
         options={{
           title: "Videos",
-          headerTitle: () => (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: "rgba(255,255,255,0.18)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="videocam" size={16} color="#fff" />
-              </View>
-              <Text
-                style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
-              >
-                Videos
-              </Text>
-            </View>
-          ),
+          headerTitle: () => <HeaderTitle icon="videocam" label="Videos" />,
           tabBarLabel: "Videos",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "videocam" : "videocam-outline"}
-              size={30}
-              color={color}
-            />
+            <Ionicons name={focused ? "videocam" : "videocam-outline"} size={24} color={color} />
           ),
         }}
       />
@@ -102,34 +148,10 @@ export default function TabsLayout() {
         name="saved"
         options={{
           title: "Saved",
-          headerTitle: () => (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: "rgba(255,255,255,0.18)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="bookmark" size={16} color="#fff" />
-              </View>
-              <Text
-                style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
-              >
-                Saved
-              </Text>
-            </View>
-          ),
+          headerTitle: () => <HeaderTitle icon="folder" label="Saved" />,
           tabBarLabel: "Saved",
           tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "bookmark" : "bookmark-outline"}
-              size={30}
-              color={color}
-            />
+            <Ionicons name={focused ? "folder" : "folder-outline"} size={24} color={color} />
           ),
         }}
       />
@@ -137,44 +159,18 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: "Settings",
-          headerTitle: () => (
-            <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-              <View
-                style={{
-                  width: 28,
-                  height: 28,
-                  borderRadius: 14,
-                  backgroundColor: "rgba(255,255,255,0.18)",
-                  alignItems: "center",
-                  justifyContent: "center",
-                }}
-              >
-                <Ionicons name="settings" size={16} color="#fff" />
-              </View>
-              <Text
-                style={{ color: "#fff", fontWeight: "800", fontSize: 16, letterSpacing: -0.3 }}
-              >
-                Settings
-              </Text>
-            </View>
-          ),
-          tabBarLabel: "Settings",
-          tabBarIcon: ({ color, focused }) => (
-            <Ionicons
-              name={focused ? "settings" : "settings-outline"}
-              size={30}
-              color={color}
-            />
-          ),
+          headerTitle: () => <HeaderTitle icon="settings" label="Settings" />,
+          href: null,
         }}
       />
-      {/* NOTE: the old hidden "index" tab screen was removed here — it pointed
-          at app/(tabs)/index.tsx, which redirects to /(tabs)/images. Since
-          (tabs) is a route GROUP, that file also resolved to the bare "/"
-          route — the exact same path already owned by app/index.tsx. Two
-          files claiming "/" is what caused the duplicate-route weirdness.
-          Delete app/(tabs)/index.tsx; app/index.tsx already handles the
-          "/" → "/(tabs)/images" redirect on its own. */}
+      <Tabs.Screen
+        name="about"
+        options={{
+          title: "About Us",
+          headerTitle: () => <HeaderTitle icon="information-circle" label="About Us" />,
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
