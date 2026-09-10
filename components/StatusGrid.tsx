@@ -17,8 +17,8 @@ import { THEME } from "../constants/theme";
 import type { StatusFile } from "../lib/statusService";
 import { formatBytes, formatDate, ensureLocalUri, isContentUri, saveToGallery } from "../lib/statusService";
 
-const GAP = 8;
-const COLS = 2;
+const GAP = 6;
+const COLS = 3;
 const SCREEN_W = Dimensions.get("window").width;
 const ITEM = (SCREEN_W - GAP * (COLS + 1)) / COLS;
 
@@ -141,7 +141,7 @@ const GridItem = memo(function GridItem({
           <View style={s.thumbFallback}>
             <Ionicons
               name={isVideo ? "videocam-outline" : "image-outline"}
-              size={32}
+              size={28}
               color="#8A9BA3"
             />
           </View>
@@ -163,7 +163,7 @@ const GridItem = memo(function GridItem({
         {isVideo && (
           <View style={s.playWrap} pointerEvents="none">
             <View style={s.playCircle}>
-              <Ionicons name="play" size={20} color="#fff" style={{ marginLeft: 2 }} />
+              <Ionicons name="play" size={16} color="#fff" style={{ marginLeft: 2 }} />
             </View>
           </View>
         )}
@@ -186,7 +186,7 @@ const GridItem = memo(function GridItem({
         {saving ? (
           <ActivityIndicator size="small" color="#fff" />
         ) : (
-          <Ionicons name={saved ? "checkmark" : "download"} size={16} color="#fff" />
+          <Ionicons name={saved ? "checkmark" : "download"} size={14} color="#fff" />
         )}
       </Pressable>
     </View>
@@ -265,10 +265,10 @@ export function StatusGridSkeleton() {
 const s = StyleSheet.create({
   cell: {
     width: ITEM,
-    height: ITEM * 1.15,
+    height: ITEM,
     backgroundColor: "#E9EDEF",
     overflow: "hidden",
-    borderRadius: 14,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E9EDEF",
   },
@@ -292,9 +292,9 @@ const s = StyleSheet.create({
   topChipText: { color: "#fff", fontSize: 10, fontWeight: "700", letterSpacing: 0.2 },
   playWrap: { ...StyleSheet.absoluteFillObject, alignItems: "center", justifyContent: "center" } as any,
   playCircle: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: "rgba(0,0,0,0.55)",
     alignItems: "center",
     justifyContent: "center",
@@ -315,11 +315,11 @@ const s = StyleSheet.create({
   sizeText: { color: "rgba(255,255,255,0.85)", fontSize: 10, marginTop: 1 },
   saveBtn: {
     position: "absolute",
-    bottom: 8,
-    right: 8,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    bottom: 6,
+    right: 6,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     backgroundColor: THEME.colors.primary,
     alignItems: "center",
     justifyContent: "center",
@@ -345,6 +345,6 @@ const s = StyleSheet.create({
   emptySub: { fontSize: 13.5, color: THEME.colors.textSecondary, textAlign: "center", lineHeight: 20, paddingHorizontal: 8 },
   emptyActionWrap: { marginTop: 6, width: "100%", maxWidth: 320, gap: 8 },
   skeletonWrap: { flexDirection: "row", flexWrap: "wrap", gap: GAP, padding: GAP },
-  skeletonCell: { width: ITEM, height: ITEM * 1.15, borderRadius: 14, backgroundColor: "#E9EDEF", overflow: "hidden" },
+  skeletonCell: { width: ITEM, height: ITEM, borderRadius: 12, backgroundColor: "#E9EDEF", overflow: "hidden" },
   skeletonShimmer: { flex: 1, backgroundColor: "#F0F2F5" },
 });

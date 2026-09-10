@@ -1,10 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, Platform, Pressable, ActivityIndicator, AppState } from 'react-native';
+import { View, Text, StyleSheet, Platform, ActivityIndicator, AppState } from 'react-native';
 import { useFocusEffect } from 'expo-router';
-import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../../constants/theme';
 import { listStatuses, StatusFile } from '../../lib/statusService';
-import { hasStoragePermission, hasSAFPermission, requestSAFPermission } from '../../lib/storageAccess';
+import { hasStoragePermission, hasSAFPermission } from '../../lib/storageAccess';
 import { StatusGrid } from '../../components/StatusGrid';
 import { PreviewModal } from '../../components/PreviewModal';
 import { PermissionGate } from '../../components/PermissionGate';
@@ -16,7 +15,6 @@ export default function ImagesScreen() {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
-  const [fixingAccess, setFixingAccess] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -109,19 +107,6 @@ export default function ImagesScreen() {
     return () => sub.remove();
   }, [refresh]);
 
-  async function handleRepickFolder() {
-    if (fixingAccess) return;
-    setFixingAccess(true);
-    try {
-      const { granted } = await requestSAFPermission();
-      if (granted) {
-        await refresh();
-      }
-    } finally {
-      setFixingAccess(false);
-    }
-  }
-
   const handlePress = (f: StatusFile) => {
     const idx = files.findIndex((x) => x.uri === f.uri);
     setSelectedIndex(idx >= 0 ? idx : null);
@@ -156,20 +141,6 @@ export default function ImagesScreen() {
               refreshing={refreshing || loading}
               onRefresh={onPullRefresh}
               emptyText="View statuses in WhatsApp, then pull to refresh."
-              emptyAction={
-                <Pressable
-                  onPress={handleRepickFolder}
-                  disabled={fixingAccess}
-                  style={[s.fixBtn, fixingAccess && { opacity: 0.6 }]}
-                >
-                  {fixingAccess ? (
-                    <ActivityIndicator color={THEME.colors.primary} size="small" />
-                  ) : (
-                    <Ionicons name="folder-open-outline" size={16} color={THEME.colors.primary} />
-                  )}
-                  <Text style={s.fixBtnText}>Pick .Statuses folder</Text>
-                </Pressable>
-              }
             />
           )}
         </View>
@@ -200,16 +171,4 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     padding: 32,
   },
-  fixBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#D9EFDF',
-    paddingVertical: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#BFE3C9',
-  },
-  fixBtnText: { color: THEME.colors.primary, fontSize: 13.5, fontWeight: '800' },
 });

@@ -707,33 +707,23 @@ export async function shareToWhatsApp(
   const business = isBusinessSource(sourceLabel, source);
   const targetPackage = business ? 'com.whatsapp.w4b' : 'com.whatsapp';
 
+  // Open the matching WhatsApp app directly. NOTE: expo-intent-launcher's
+  // startActivityAsync cannot deliver a file to a specific package — extras go
+  // through as a String Bundle (EXTRA_STREAM needs a Uri Parcelable) and
+  // packageName is ignored unless className is also set — so ACTION_SEND via
+  // that API can never attach the media. openApplication launches the right
+  // app immediately; the Share button remains for sending the file itself.
+  if (Platform.OS === 'android') {
+    try {
+      IntentLauncher.openApplication(targetPackage);
+      return;
+    } catch {
+      // Target app not installed — fall through to the system share sheet so
+      // the media can still be sent (user picks an installed app).
+    }
+  }
   const local = await prepareFile(fileUri, fileName);
   try {
-    // Android: try to open the right WhatsApp directly.
-    if (Platform.OS === 'android') {
-      try {
-        let contentUri = local;
-        try {
-          const cUri = await (LegacyFS as any).getContentUriAsync?.(local);
-          if (typeof cUri === 'string' && cUri.length > 0) contentUri = cUri;
-        } catch {
-          // fall back to file:// — Intent may still resolve on some OEMs
-        }
-        await IntentLauncher.startActivityAsync('android.intent.action.SEND', {
-          data: contentUri,
-          flags: 1, // FLAG_GRANT_READ_URI_PERMISSION
-          type: mimeType,
-          packageName: targetPackage,
-          extra: {
-            'android.intent.extra.STREAM': contentUri,
-          } as any,
-        });
-        return;
-      } catch {
-        // Direct open failed (app not installed, no handler, bad URI) —
-        // fall through to the system share sheet below.
-      }
-    }
     if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
     await Sharing.shareAsync(local, { dialogTitle: 'Share to WhatsApp', mimeType });
   } finally {

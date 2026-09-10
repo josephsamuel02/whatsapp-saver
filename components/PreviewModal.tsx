@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { VideoView, useVideoPlayer } from "expo-video";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { THEME } from "../constants/theme";
 import type { StatusFile } from "../lib/statusService";
 import { saveToGallery, shareFile, shareToWhatsApp, formatBytes, ensureLocalUri, isContentUri } from "../lib/statusService";
@@ -176,6 +177,7 @@ export function PreviewModal(props: PreviewProps) {
   const [savedPulse, setSavedPulse] = useState(false);
   const pulseTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const listRef = useRef<FlatList>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (propIndex !== null && propIndex !== undefined) setCurrent(propIndex);
@@ -255,7 +257,7 @@ export function PreviewModal(props: PreviewProps) {
           )}
         />
 
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: Math.max(insets.top, 0) + 12 }]}>
           <Pressable onPress={props.onClose} style={styles.iconBtn} hitSlop={10}>
             <Ionicons name="arrow-back" size={22} color="#fff" />
           </Pressable>
@@ -266,13 +268,13 @@ export function PreviewModal(props: PreviewProps) {
         </View>
 
         {savedPulse && (
-          <View style={styles.savedToast}>
+          <View style={[styles.savedToast, { bottom: insets.bottom + 100 }]}>
             <Ionicons name="checkmark-circle" size={18} color="#fff" />
             <Text style={styles.savedToastText}>Saved to Gallery</Text>
           </View>
         )}
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable onPress={handleShare} style={styles.actionBtn} android_ripple={{ color: "rgba(255,255,255,0.12)" }}>
             <Ionicons name="share-outline" size={19} color="#fff" />
             <Text style={styles.actionText}>Share</Text>

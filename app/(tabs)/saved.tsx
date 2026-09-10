@@ -7,14 +7,16 @@ import { THEME } from "../../constants/theme";
 import * as Sharing from "expo-sharing";
 import { useVideoPlayer, VideoView } from "expo-video";
 import * as VideoThumbnails from "expo-video-thumbnails";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-const GAP = 8; const COLS = 2; const ITEM = (Dimensions.get("window").width - GAP * (COLS + 1)) / COLS;
+const GAP = 6; const COLS = 3; const ITEM = (Dimensions.get("window").width - GAP * (COLS + 1)) / COLS;
 const W = Dimensions.get("window").width;
 const H = Dimensions.get("window").height;
 
 function SavedPreview({ assets, index, onClose, onIndexChange }: { assets: any[]; index: number | null; onClose: () => void; onIndexChange?: (i: number) => void }) {
   const [current, setCurrent] = useState(index ?? 0);
   const listRef = useRef<FlatList>(null);
+  const insets = useSafeAreaInsets();
 
   useEffect(() => {
     if (index !== null && index !== undefined) setCurrent(index);
@@ -59,12 +61,12 @@ function SavedPreview({ assets, index, onClose, onIndexChange }: { assets: any[]
             </View>
           )}
         />
-        <View style={pv.topBar}>
+        <View style={[pv.topBar, { paddingTop: Math.max(insets.top, 0) + 12 }]}>
           <Pressable onPress={onClose} style={pv.iconBtn}><Ionicons name="arrow-back" size={20} color="#fff" /></Pressable>
           <View style={{ flex: 1 }} />
           <View style={{ width: 38 }} />
         </View>
-        <View style={pv.bottom}>
+        <View style={[pv.bottom, { paddingBottom: insets.bottom + 12 }]}>
           <Pressable onPress={async () => { try { if (asset) await Sharing.shareAsync(asset.uri); } catch (e:any){ Alert.alert("Share failed", e?.message); } }} style={pv.btn}><Ionicons name="share-outline" size={18} color="#fff" /><Text style={pv.btnT}>Share</Text></Pressable>
           <Pressable onPress={onClose} style={[pv.btn, pv.btnPrimary]}><Ionicons name="checkmark" size={18} color="#fff" /><Text style={pv.btnT}>Done</Text></Pressable>
         </View>
@@ -229,7 +231,7 @@ const s = StyleSheet.create({
   empty: { flex: 1, alignItems: "center", justifyContent: "center", padding: 26, gap: 10 },
   emptyIcon: { width: 76, height: 76, borderRadius: 38, backgroundColor: "#D9EFDF", alignItems: "center", justifyContent: "center", borderWidth: 1, borderColor: "#BFE3C9" },
   emptyTitle: { fontSize: 17, fontWeight: "800", color: THEME.colors.text },
-  cell: { width: ITEM, height: ITEM * 1.15, borderRadius: 14, overflow: "hidden", backgroundColor: "#E9EDEF", borderWidth: 1, borderColor: THEME.colors.border },
+  cell: { width: ITEM, height: ITEM, borderRadius: 12, overflow: "hidden", backgroundColor: "#E9EDEF", borderWidth: 1, borderColor: THEME.colors.border },
   thumb: { width: "100%", height: "100%" } as any,
   thumbFallback: { width: "100%", height: "100%", alignItems: "center", justifyContent: "center", backgroundColor: "#1E2A30" } as any,
   play: { position: "absolute", bottom: 8, right: 8, width: 26, height: 26, borderRadius: 13, backgroundColor: "rgba(0,0,0,0.62)", alignItems: "center", justifyContent: "center" } as any,
