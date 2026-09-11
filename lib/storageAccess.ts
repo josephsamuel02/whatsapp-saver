@@ -222,14 +222,26 @@ export async function hasSAFPermission(): Promise<boolean> {
   }
 }
 
-/** Open the system folder picker so the user can select the `.Statuses` folder. */
-export async function requestSAFPermission(): Promise<{ granted: boolean; uri?: string }> {
+/** Open the system folder picker so the user can select the `.Statuses` folder.
+ * Pass `kind` to hint the picker at the right location so WhatsApp vs
+ * WhatsApp Business don't end up pointing at the same directory:
+ * - "wa"  → Android/media/com.whatsapp/WhatsApp/Media
+ * - "biz" → Android/media/com.whatsapp.w4b/WhatsApp Business/Media
+ * The hint is best-effort (OEM pickers may ignore it) — callers must still
+ * validate the returned URI (see Settings pickFolder).
+ */
+export async function requestSAFPermission(
+  kind?: 'wa' | 'biz'
+): Promise<{ granted: boolean; uri?: string }> {
   if (Platform.OS !== 'android') return { granted: false };
   try {
     if (!SAF?.requestDirectoryPermissionsAsync) {
       throw new Error('Storage Access Framework not available on this device');
     }
-    const result = await SAF.requestDirectoryPermissionsAsync();
+    const initialUri = getInitialSAFUri(kind);
+    const result = initialUri
+      ? await SAF.requestDirectoryPermissionsAsync(initialUri)
+      : await SAF.requestDirectoryPermissionsAsync();
     if (result?.granted && result?.directoryUri) {
       return { granted: true, uri: result.directoryUri };
     }
@@ -237,6 +249,26 @@ export async function requestSAFPermission(): Promise<{ granted: boolean; uri?: 
   } catch (e) {
     console.error('SAF permission request failed:', e);
     return { granted: false };
+  }
+}
+
+/**
+ * Best-effort initial location for the SAF picker.
+ * Uses getUriForDirectoryInRoot when available so the picker opens near the
+ * right WhatsApp folder instead of the last-used location (which is what
+ * caused WA Business picks to land in the regular WhatsApp folder).
+ */
+function getInitialSAFUri(kind?: 'wa' | 'biz'): string | undefined {
+  try {
+    if (!kind || !SAF?.getUriForDirectoryInRoot) return undefined;
+    const folder =
+      kind === 'biz'
+        ? 'Android/media/com.whatsapp.w4b/WhatsApp Business/Media'
+        : 'Android/media/com.whatsapp/WhatsApp/Media';
+    const uri = SAF.getUriForDirectoryInRoot(folder);
+    return typeof uri === 'string' && uri.length > 0 ? uri : undefined;
+  } catch {
+    return undefined;
   }
 }
 

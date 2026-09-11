@@ -7,6 +7,7 @@ import {
   Linking,
   ActivityIndicator,
   AppState,
+  Alert,
 } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
@@ -19,16 +20,27 @@ import {
   requestMediaLibraryPermission,
   getGrantedSAFUris,
 } from "../../lib/storageAccess";
+import { decodeSAFUri } from "../../lib/statusService";
+
+function isBizUri(u: string): boolean {
+  return u.includes("w4b") || u.includes("business");
+}
+
+function isWaUri(u: string): boolean {
+  return u.includes("com.whatsapp") && !u.includes("w4b") && !u.includes("business");
+}
 
 function SettingRow({
   icon,
   label,
+  subtitle,
   active,
   busy,
   onPress,
 }: {
   icon: any;
   label: string;
+  subtitle?: string;
   active: boolean | null;
   busy?: boolean;
   onPress: () => void;
@@ -44,7 +56,14 @@ function SettingRow({
         size={20}
         color={active ? THEME.colors.primary : THEME.colors.textMuted}
       />
-      <Text style={s.label}>{label}</Text>
+      <View style={{ flex: 1 }}>
+        <Text style={s.label}>{label}</Text>
+        {subtitle ? (
+          <Text style={s.subtitle} numberOfLines={1}>
+            {subtitle}
+          </Text>
+        ) : null}
+      </View>
       {busy || active === null ? (
         <ActivityIndicator size="small" color={THEME.colors.textMuted} />
       ) : active ? (
@@ -62,6 +81,8 @@ export default function SettingsScreen() {
   const [direct, setDirect] = useState<boolean | null>(null);
   const [waFolder, setWaFolder] = useState<boolean | null>(null);
   const [waBizFolder, setWaBizFolder] = useState<boolean | null>(null);
+  const [waPath, setWaPath] = useState<string | undefined>(undefined);
+  const [waBizPath, setWaBizPath] = useState<string | undefined>(undefined);
   const [media, setMedia] = useState<boolean | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
 
@@ -77,16 +98,21 @@ export default function SettingsScreen() {
       const lower = (uris || []).map((u) => {
         try { return decodeURIComponent(u).toLowerCase(); } catch { return u.toLowerCase(); }
       });
-      const hasWa = lower.some((u) => u.includes("com.whatsapp") && !u.includes("w4b") && !u.includes("business"));
-      const hasBiz = lower.some((u) => u.includes("w4b") || u.includes("business"));
-      // If user granted a parent folder, both may resolve — fall back to generic SAF state
-      const anySaf = lower.length > 0;
-      setWaFolder(hasWa || (!hasWa && !hasBiz && anySaf ? true : hasWa));
-      setWaBizFolder(hasBiz || (!hasWa && !hasBiz && anySaf ? true : hasBiz));
+      // Fix #2: track each folder separately instead of marking both "On"
+      // for one generic grant. A generic/parent grant no longer maps to both —
+      // each row is only On when ITS OWN folder was granted.
+      const waUri = (uris || []).find((u, i) => isWaUri(lower[i]));
+      const bizUri = (uris || []).find((u, i) => isBizUri(lower[i]));
+      setWaFolder(!!waUri);
+      setWaBizFolder(!!bizUri);
+      setWaPath(waUri ? decodeSAFUri(waUri) : undefined);
+      setWaBizPath(bizUri ? decodeSAFUri(bizUri) : undefined);
     } catch {
       setDirect(false);
       setWaFolder(false);
       setWaBizFolder(false);
+      setWaPath(undefined);
+      setWaBizPath(undefined);
       setMedia(false);
     }
   }, []);
@@ -112,8 +138,53 @@ export default function SettingsScreen() {
     if (busyKey) return;
     setBusyKey(kind);
     try {
-      const { granted } = await requestSAFPermission();
-      if (granted) await load();
+      // Fix #2: hint the picker at the right folder (wa vs w4b) so the two
+      // rows can't silently end up on the same directory.
+      const { granted, uri } = await requestSAFPermission(kind);
+      if (!granted) return;
+      await load();
+      if (uri) {
+        let decoded = uri;
+        try { decoded = decodeURIComponent(uri).toLowerCase(); } catch { /* keep raw */ }
+        const pickedBiz = isBizUri(decoded);
+        const pickedWa = isWaUri(decoded);
+        const expected = kind === "biz"
+          ? "Android → media → com.whatsapp.w4b → WhatsApp Business → Media → .Statuses"
+          : "Android → media → com.whatsapp → WhatsApp → Media → .Statuses";
+        if (kind === "biz" && !pickedBiz) {
+          Alert.alert(
+            "Wrong folder?",
+            `That looks like the regular WhatsApp folder, not Business.\n\nFor Business pick:\n${expected}`,
+            [{ text: "OK" }]
+          );
+        } else if (kind === "wa" && !pickedWa) {
+          Alert.alert(
+            "Wrong folder?",
+            `That doesn't look like the regular WhatsApp folder.\n\nFor WhatsApp pick:\n${expected}`,
+            [{ text: "OK" }]
+          );
+        }
+        // Warn if both rows now resolve to the same grant.
+        try {
+          const uris = await getGrantedSAFUris();
+          const lowers = uris.map((u) => {
+            try { return decodeURIComponent(u).toLowerCase(); } catch { return u.toLowerCase(); }
+          });
+          const waCount = lowers.filter((u) => isWaUri(u)).length;
+          const bizCount = lowers.filter((u) => isBizUri(u)).length;
+          if (waCount > 0 && bizCount > 0) {
+            const waUris = uris.filter((_, i) => isWaUri(lowers[i]));
+            const bizUris = uris.filter((_, i) => isBizUri(lowers[i]));
+            if (waUris.some((u) => bizUris.includes(u))) {
+              Alert.alert(
+                "Same folder for both",
+                "WhatsApp and WhatsApp Business are pointing at the same folder. Pick each app's own .Statuses folder to see separate statuses.",
+                [{ text: "OK" }]
+              );
+            }
+          }
+        } catch { /* validation only */ }
+      }
     } finally {
       setBusyKey(null);
     }
@@ -150,6 +221,7 @@ export default function SettingsScreen() {
         <SettingRow
           icon="logo-whatsapp"
           label="WhatsApp Status Folder"
+          subtitle={waPath ? `…/${waPath.split("/").slice(-3).join("/")}` : "Not granted — tap to pick"}
           active={waFolder}
           busy={busyKey === "wa"}
           onPress={() => pickFolder("wa")}
@@ -158,6 +230,7 @@ export default function SettingsScreen() {
         <SettingRow
           icon="briefcase-outline"
           label="WhatsApp Business Folder"
+          subtitle={waBizPath ? `…/${waBizPath.split("/").slice(-3).join("/")}` : "Not granted — tap to pick"}
           active={waBizFolder}
           busy={busyKey === "biz"}
           onPress={() => pickFolder("biz")}
@@ -191,7 +264,8 @@ const s = StyleSheet.create({
     paddingVertical: 16,
     paddingHorizontal: 12,
   },
-  label: { flex: 1, fontSize: 14, fontWeight: "700", color: THEME.colors.text },
+  label: { fontSize: 14, fontWeight: "700", color: THEME.colors.text },
+  subtitle: { fontSize: 11.5, color: THEME.colors.textSecondary, marginTop: 2 },
   div: { height: 1, backgroundColor: THEME.colors.divider, marginLeft: 44 },
   onBadge: {
     backgroundColor: THEME.colors.primary,

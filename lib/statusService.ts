@@ -3,7 +3,6 @@ import { Directory, File } from 'expo-file-system';
 import * as LegacyFS from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
-import * as IntentLauncher from 'expo-intent-launcher';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 export type MediaType = 'image' | 'video';
@@ -705,27 +704,25 @@ export async function shareToWhatsApp(
 ): Promise<void> {
   const mimeType = /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
   const business = isBusinessSource(sourceLabel, source);
-  const targetPackage = business ? 'com.whatsapp.w4b' : 'com.whatsapp';
 
-  // Open the matching WhatsApp app directly. NOTE: expo-intent-launcher's
-  // startActivityAsync cannot deliver a file to a specific package — extras go
-  // through as a String Bundle (EXTRA_STREAM needs a Uri Parcelable) and
-  // packageName is ignored unless className is also set — so ACTION_SEND via
-  // that API can never attach the media. openApplication launches the right
-  // app immediately; the Share button remains for sending the file itself.
-  if (Platform.OS === 'android') {
-    try {
-      IntentLauncher.openApplication(targetPackage);
-      return;
-    } catch {
-      // Target app not installed — fall through to the system share sheet so
-      // the media can still be sent (user picks an installed app).
-    }
-  }
+  // Fix #3: the old code used IntentLauncher.openApplication(targetPackage),
+  // which just cold-opens WhatsApp with NO file attached — so there is no
+  // contact picker and no way to send the media. expo-intent-launcher also
+  // can't deliver EXTRA_STREAM (it only sends String extras, and packageName
+  // is ignored without className), so ACTION_SEND through it can never work.
+  //
+  // Correct Expo flow (what other status-saver apps do): stage to a file://
+  // cache path and open the SYSTEM share sheet via Sharing.shareAsync. The
+  // user taps WhatsApp / WhatsApp Business in the sheet, and WhatsApp then
+  // opens WITH the media attached + its own contact/group picker — "select
+  // who you want to send it to". No native module / FileProvider code needed.
   const local = await prepareFile(fileUri, fileName);
   try {
     if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
-    await Sharing.shareAsync(local, { dialogTitle: 'Share to WhatsApp', mimeType });
+    await Sharing.shareAsync(local, {
+      dialogTitle: business ? 'Share to WhatsApp Business' : 'Share to WhatsApp',
+      mimeType,
+    });
   } finally {
     await deleteSilent(local);
   }
