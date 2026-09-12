@@ -184,16 +184,13 @@ export function PermissionGate({ onGranted }: Props) {
 
   if (Platform.OS !== 'android') return null;
 
-  if (checking) {
-    return (
-      <View style={s.center}>
-        <ActivityIndicator color={THEME.colors.primary} size="large" />
-      </View>
-    );
-  }
-
   if (granted) return null;
 
+  // Buttons render IMMEDIATELY — even while `checking` is true — so the
+  // first page always shows the storage button on open. Previously this
+  // returned a blank spinner while checking, and the parent screen showed
+  // its own spinner first (double-gate loading), so no button was visible
+  // for seconds on first open.
   const busy = requesting || waitingReturn;
 
   return (
@@ -205,6 +202,13 @@ export function PermissionGate({ onGranted }: Props) {
       <Text style={s.sub}>
         To show your statuses, allow access to your WhatsApp status folder. Your files stay on your device.
       </Text>
+
+      {checking ? (
+        <View style={s.checkingRow}>
+          <ActivityIndicator color={THEME.colors.primary} size="small" />
+          <Text style={s.checkingText}>Checking access…</Text>
+        </View>
+      ) : null}
 
       {/* Fix #1: the explicit "ask for storage access" button */}
       <Pressable
@@ -299,5 +303,7 @@ const s = StyleSheet.create({
     borderColor: THEME.colors.primary,
   },
   btnSecondaryText: { fontSize: 14, fontWeight: '800', color: THEME.colors.primary },
+  checkingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  checkingText: { fontSize: 12, fontWeight: '700', color: THEME.colors.textSecondary },
   hint: { fontSize: 12, color: THEME.colors.textSecondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 16, lineHeight: 17 },
 });

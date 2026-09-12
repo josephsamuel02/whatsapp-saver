@@ -7,6 +7,7 @@ import { hasStoragePermission, hasSAFPermission } from '../../lib/storageAccess'
 import { StatusGrid } from '../../components/StatusGrid';
 import { PreviewModal } from '../../components/PreviewModal';
 import { PermissionGate } from '../../components/PermissionGate';
+import { EmptyAccessAction } from '../../components/EmptyAccessAction';
 
 export default function ImagesScreen() {
   const [files, setFiles] = useState<StatusFile[]>([]);
@@ -122,11 +123,10 @@ export default function ImagesScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      {!accessChecked ? (
-        <View style={s.loadingContainer}>
-          <ActivityIndicator size="large" color={THEME.colors.primary} />
-        </View>
-      ) : !hasAccess ? (
+      {/* Show the gate immediately on first open (even while the access
+          check is still running) so the storage button is always on the
+          first page — never a blank spinner with no action. */}
+      {!accessChecked || !hasAccess ? (
         <PermissionGate onGranted={refresh} />
       ) : (
         <View style={{ flex: 1 }}>
@@ -141,6 +141,7 @@ export default function ImagesScreen() {
               refreshing={refreshing || loading}
               onRefresh={onPullRefresh}
               emptyText="View statuses in WhatsApp, then pull to refresh."
+              emptyAction={<EmptyAccessAction onChanged={refresh} />}
             />
           )}
         </View>
