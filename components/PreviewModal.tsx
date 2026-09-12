@@ -247,12 +247,6 @@ function ImagePreview({ uri, name }: { uri: string; name: string }) {
           <ActivityIndicator size="small" color="#fff" />
         </View>
       )}
-      {scale === 1 && !staging && (
-        <View style={styles.zoomHint} pointerEvents="none">
-          <Ionicons name="expand-outline" size={12} color="rgba(255,255,255,0.8)" />
-          <Text style={styles.zoomHintText}>Double-tap or pinch to zoom</Text>
-        </View>
-      )}
     </View>
   );
 }
@@ -393,19 +387,6 @@ const styles = StyleSheet.create({
   mediaWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
   imageZoomWrap: { width: W, height: H - 160, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   image: { width: W, height: H - 160, alignSelf: "center" },
-  zoomHint: {
-    position: "absolute",
-    bottom: 12,
-    alignSelf: "center",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: "rgba(0,0,0,0.55)",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  zoomHintText: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "600" },
   video: { width: W, height: H - 170 },
   videoFallback: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   videoFallbackText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600" },
