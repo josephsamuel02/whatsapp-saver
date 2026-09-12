@@ -418,6 +418,43 @@ async function deleteSilent(uri: string): Promise<void> {
   }
 }
 
+function shareMimeType(fileName: string): string {
+  const dot = fileName.lastIndexOf('.');
+  const ext = dot >= 0 ? fileName.slice(dot).toLowerCase() : '';
+  switch (ext) {
+    case '.jpg':
+    case '.jpeg':
+      return 'image/jpeg';
+    case '.png':
+      return 'image/png';
+    case '.webp':
+      return 'image/webp';
+    case '.gif':
+      return 'image/gif';
+    case '.mp4':
+      return 'video/mp4';
+    case '.3gp':
+      return 'video/3gpp';
+    case '.mkv':
+      return 'video/x-matroska';
+    case '.mov':
+      return 'video/quicktime';
+    case '.avi':
+      return 'video/x-msvideo';
+    default:
+      return /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
+  }
+}
+
+async function pruneShareCache(): Promise<void> {
+  try {
+    const base = LegacyFS.cacheDirectory ?? '';
+    if (!base) return;
+    await pruneCacheDir(`${base}status_saver/`, 50);
+  } catch {
+  }
+}
+
 export async function saveToGallery(fileUri: string, fileName: string): Promise<void> {
   const perm = await MediaLibrary.requestPermissionsAsync();
   if (!perm.granted) throw new Error('Gallery permission denied. Go to Settings and allow storage access.');
@@ -443,7 +480,7 @@ export async function shareFile(fileUri: string, fileName: string): Promise<void
   try {
     await Sharing.shareAsync(local, { dialogTitle: 'Share Status' });
   } finally {
-    await deleteSilent(local);
+    void pruneShareCache();
   }
 }
 
@@ -453,7 +490,7 @@ export async function shareToWhatsApp(
   sourceLabel?: string,
   source?: string
 ): Promise<void> {
-  const mimeType = /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
+  const mimeType = shareMimeType(fileName);
   const business = isBusinessSource(sourceLabel, source);
 
   const local = await prepareFile(fileUri, fileName);
@@ -476,7 +513,7 @@ export async function shareToWhatsApp(
       mimeType,
     });
   } finally {
-    await deleteSilent(local);
+    void pruneShareCache();
   }
 }
 

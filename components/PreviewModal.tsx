@@ -8,7 +8,6 @@ import {
   Image,
   ActivityIndicator,
   Alert,
-  ScrollView,
   Dimensions,
   FlatList,
 } from "react-native";
@@ -111,11 +110,26 @@ function ImagePreview({ uri, name }: { uri: string; name: string }) {
   const [src, setSrc] = useState(uri);
   const [failed, setFailed] = useState(false);
   const [staging, setStaging] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [tx, setTx] = useState(0);
+  const [ty, setTy] = useState(0);
+
+  const lastTap = useRef(0);
+  const pinch = useRef<{ dist: number; scale: number; tx: number; ty: number } | null>(null);
+  const pan = useRef<{ x: number; y: number; tx: number; ty: number } | null>(null);
+  const zoom = useRef({ scale: 1, tx: 0, ty: 0 });
+  zoom.current = { scale, tx, ty };
 
   useEffect(() => {
     setSrc(uri);
     setFailed(false);
     setStaging(false);
+    setScale(1);
+    setTx(0);
+    setTy(0);
+    lastTap.current = 0;
+    pinch.current = null;
+    pan.current = null;
   }, [uri]);
 
   async function handleError() {
@@ -143,23 +157,103 @@ function ImagePreview({ uri, name }: { uri: string; name: string }) {
     );
   }
 
+  const clampPan = (s: number, x: number, y: number) => {
+    if (s <= 1) return { x: 0, y: 0 };
+    const maxX = ((s - 1) * W) / 2;
+    const maxY = ((s - 1) * (H - 160)) / 2;
+    return {
+      x: Math.max(-maxX, Math.min(maxX, x)),
+      y: Math.max(-maxY, Math.min(maxY, y)),
+    };
+  };
+
+  const applyZoom = (s: number, x: number, y: number) => {
+    const clamped = Math.max(1, Math.min(4, s));
+    const p = clampPan(clamped, x, y);
+    setScale(clamped);
+    setTx(p.x);
+    setTy(p.y);
+  };
+
+  const fingerDist = (touches: Array<{ pageX: number; pageY: number }>) => {
+    const dx = touches[0].pageX - touches[1].pageX;
+    const dy = touches[0].pageY - touches[1].pageY;
+    return Math.sqrt(dx * dx + dy * dy);
+  };
+
   return (
-    <ScrollView
-      contentContainerStyle={styles.imageScrollContent}
-      maximumZoomScale={3}
-      minimumZoomScale={1}
-      showsHorizontalScrollIndicator={false}
-      showsVerticalScrollIndicator={false}
-      bouncesZoom
-      centerContent
+    <View
+      style={styles.imageZoomWrap}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => zoom.current.scale > 1}
+      onResponderGrant={(e: any) => {
+        const touches = e.nativeEvent.touches ?? [];
+        if (touches.length === 2) {
+          pinch.current = { dist: fingerDist(touches), scale, tx, ty };
+          pan.current = null;
+        } else if (touches.length === 1) {
+          pan.current = { x: touches[0].pageX, y: touches[0].pageY, tx, ty };
+        }
+      }}
+      onResponderMove={(e: any) => {
+        const touches = e.nativeEvent.touches ?? [];
+        if (touches.length === 2) {
+          const d = fingerDist(touches);
+          if (d > 0) {
+            if (!pinch.current) {
+              pinch.current = { dist: d, scale, tx, ty };
+            } else {
+              const p = pinch.current;
+              applyZoom((p.scale * d) / p.dist, p.tx, p.ty);
+            }
+          }
+          pan.current = null;
+        } else if (touches.length === 1 && scale > 1 && pan.current) {
+          const p = pan.current;
+          const nx = p.tx + (touches[0].pageX - p.x);
+          const ny = p.ty + (touches[0].pageY - p.y);
+          const c = clampPan(scale, nx, ny);
+          setTx(c.x);
+          setTy(c.y);
+        }
+      }}
+      onResponderRelease={(e: any) => {
+        const wasPinch = pinch.current !== null;
+        pinch.current = null;
+        pan.current = null;
+        if (wasPinch) return;
+        const now = Date.now();
+        if (now - lastTap.current < 280) {
+          lastTap.current = 0;
+          if (zoom.current.scale > 1) {
+            applyZoom(1, 0, 0);
+          } else {
+            applyZoom(2.5, 0, 0);
+          }
+        } else {
+          lastTap.current = now;
+        }
+      }}
+      onResponderTerminate={() => {
+        pinch.current = null;
+        pan.current = null;
+      }}
     >
-      <Image source={{ uri: src }} style={styles.image} resizeMode="contain" onError={handleError} />
+      <View style={{ transform: [{ translateX: tx }, { translateY: ty }, { scale }] }}>
+        <Image source={{ uri: src }} style={styles.image} resizeMode="contain" onError={handleError} />
+      </View>
       {staging && (
         <View style={styles.stagingBadge}>
           <ActivityIndicator size="small" color="#fff" />
         </View>
       )}
-    </ScrollView>
+      {scale === 1 && !staging && (
+        <View style={styles.zoomHint} pointerEvents="none">
+          <Ionicons name="expand-outline" size={12} color="rgba(255,255,255,0.8)" />
+          <Text style={styles.zoomHintText}>Double-tap or pinch to zoom</Text>
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -297,8 +391,21 @@ export function PreviewModal(props: PreviewProps) {
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: "#000" },
   mediaWrap: { flex: 1, alignItems: "center", justifyContent: "center", backgroundColor: "#000" },
-  imageScrollContent: { flexGrow: 1, alignItems: "center", justifyContent: "center", width: W, height: H },
+  imageZoomWrap: { width: W, height: H - 160, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   image: { width: W, height: H - 160, alignSelf: "center" },
+  zoomHint: {
+    position: "absolute",
+    bottom: 12,
+    alignSelf: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "rgba(0,0,0,0.55)",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+  },
+  zoomHintText: { color: "rgba(255,255,255,0.8)", fontSize: 11, fontWeight: "600" },
   video: { width: W, height: H - 170 },
   videoFallback: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12, padding: 24 },
   videoFallbackText: { color: "rgba(255,255,255,0.75)", fontSize: 13, fontWeight: "600" },

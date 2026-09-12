@@ -2,7 +2,7 @@
   "expo": {
     "name": "Status Saver for WhatsApp",
     "slug": "status-saver",
-    "version": "1.1.1",
+    "version": "1.1.2",
     "scheme": "statussaver",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -24,7 +24,7 @@
     },
     "android": {
       "package": "com.statussaver.app",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#159552"
