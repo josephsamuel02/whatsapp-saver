@@ -3,6 +3,7 @@ import { Directory, File } from 'expo-file-system';
 import * as LegacyFS from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
+import Share, { Social } from 'react-native-share';
 
 export type MediaType = 'image' | 'video';
 export interface StatusFile {
@@ -457,6 +458,18 @@ export async function shareToWhatsApp(
 
   const local = await prepareFile(fileUri, fileName);
   try {
+    try {
+      await Share.shareSingle({
+        url: local,
+        type: mimeType,
+        filename: fileName,
+        social: business ? Social.Whatsappbusiness : Social.Whatsapp,
+      });
+      return;
+    } catch (e: any) {
+      const msg = String(e?.message ?? e ?? '');
+      if (/cancel|did not share|dismissed/i.test(msg)) return;
+    }
     if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
     await Sharing.shareAsync(local, {
       dialogTitle: business ? 'Share to WhatsApp Business' : 'Share to WhatsApp',

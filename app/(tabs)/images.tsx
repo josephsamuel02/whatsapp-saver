@@ -138,7 +138,7 @@ export default function ImagesScreen() {
               refreshing={refreshing || loading}
               onRefresh={onPullRefresh}
               emptyText="View statuses in WhatsApp, then pull to refresh."
-              emptyAction={<EmptyAccessAction onChanged={refresh} />}
+              emptyAction={<EmptyAccessAction />}
             />
           )}
         </View>

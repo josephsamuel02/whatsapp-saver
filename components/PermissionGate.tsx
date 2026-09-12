@@ -18,7 +18,6 @@ import {
   openAllFilesAccessSettings,
   isAndroid11Plus,
   hasSAFPermission,
-  requestSAFPermission,
 } from '../lib/storageAccess';
 
 interface Props {
@@ -29,7 +28,6 @@ export function PermissionGate({ onGranted }: Props) {
   const [checking, setChecking] = useState(true);
   const [granted, setGranted] = useState(false);
   const [requesting, setRequesting] = useState(false);
-  const [pickingFolder, setPickingFolder] = useState(false);
   const [waitingReturn, setWaitingReturn] = useState(false);
 
   const onGrantedRef = useRef(onGranted);
@@ -139,20 +137,6 @@ export function PermissionGate({ onGranted }: Props) {
     }
   }
 
-  async function handlePickFolder() {
-    if (pickingFolder || requesting) return;
-    setPickingFolder(true);
-    try {
-      const { granted: ok } = await requestSAFPermission();
-      if (ok) {
-        await check();
-      }
-    } catch {
-    } finally {
-      setPickingFolder(false);
-    }
-  }
-
   if (Platform.OS !== 'android') return null;
 
   if (granted) return null;
@@ -178,28 +162,13 @@ export function PermissionGate({ onGranted }: Props) {
 
       <Pressable
         onPress={handleAllow}
-        disabled={busy || pickingFolder}
-        style={[s.btn, (busy || pickingFolder) && s.btnDim]}
+        disabled={busy}
+        style={[s.btn, busy && s.btnDim]}
       >
         {busy ? <ActivityIndicator color="#fff" size="small" /> : null}
         <Text style={s.btnText}>
           {waitingReturn ? 'Waiting — enable access, then come back' : 'Allow Storage Access'}
         </Text>
-      </Pressable>
-
-      <Text style={s.or}>or</Text>
-
-      <Pressable
-        onPress={handlePickFolder}
-        disabled={busy || pickingFolder}
-        style={[s.btnSecondary, (busy || pickingFolder) && s.btnDim]}
-      >
-        {pickingFolder ? (
-          <ActivityIndicator color={THEME.colors.primary} size="small" />
-        ) : (
-          <Ionicons name="folder-outline" size={18} color={THEME.colors.primary} />
-        )}
-        <Text style={s.btnSecondaryText}>Pick the .Statuses folder</Text>
       </Pressable>
 
       {waitingReturn ? (
@@ -253,20 +222,5 @@ const s = StyleSheet.create({
   },
   btnDim: { opacity: 0.65 },
   btnText: { fontSize: 16, fontWeight: '800', color: '#fff', textAlign: 'center' },
-  or: { fontSize: 13, fontWeight: '700', color: THEME.colors.textMuted, marginTop: 2 },
-  btnSecondary: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    backgroundColor: '#fff',
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    borderRadius: 999,
-    minWidth: 240,
-    borderWidth: 1.5,
-    borderColor: THEME.colors.primary,
-  },
-  btnSecondaryText: { fontSize: 14, fontWeight: '800', color: THEME.colors.primary },
   hint: { fontSize: 12, color: THEME.colors.textSecondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 16, lineHeight: 17 },
 });
