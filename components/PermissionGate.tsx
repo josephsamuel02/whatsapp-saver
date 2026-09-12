@@ -30,21 +30,14 @@ export function PermissionGate({ onGranted }: Props) {
   const [granted, setGranted] = useState(false);
   const [requesting, setRequesting] = useState(false);
   const [pickingFolder, setPickingFolder] = useState(false);
-  // true after the user tapped Allow and went to Settings (Android 11+)
   const [waitingReturn, setWaitingReturn] = useState(false);
 
-  // onGranted changes identity every parent render (it's a plain function).
-  // Keep it in a ref so `check` stays stable.
   const onGrantedRef = useRef(onGranted);
   useEffect(() => {
     onGrantedRef.current = onGranted;
   }, [onGranted]);
 
-  // Fix #1: auto-prompt only once per mount (first open with no access).
   const autoPromptedRef = useRef(false);
-  // Fix #4: fallback timer — if the AppState 'active' event is missed
-  // (picker/Settings overlay didn't background the app), the button would
-  // stay stuck on a spinner and the user force-kills the app ("it closed").
   const waitingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
     return () => {
@@ -72,7 +65,6 @@ export function PermissionGate({ onGranted }: Props) {
     }
   }, []);
 
-  // Initial check + Fix #1 auto-prompt on first open
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -80,7 +72,6 @@ export function PermissionGate({ onGranted }: Props) {
       if (cancelled) return;
       if (!ok && !autoPromptedRef.current) {
         autoPromptedRef.current = true;
-        // Small delay so the permission screen paints first, then prompt.
         setTimeout(() => {
           if (cancelled) return;
           Alert.alert(
@@ -98,14 +89,8 @@ export function PermissionGate({ onGranted }: Props) {
     return () => {
       cancelled = true;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [check]);
 
-  // Re-check whenever the app returns to foreground (user coming back from
-  // system Settings or the folder picker). This subscription is ALWAYS active —
-  // previously it only existed while `waitingReturn` was true, so grants made
-  // outside that narrow window looked like "permission failing / not persistent".
-  // Fix #4: only refresh state here — never reload/restart the app.
   useEffect(() => {
     const sub = AppState.addEventListener('change', async (state: AppStateStatus) => {
       if (state === 'active') {
@@ -123,7 +108,6 @@ export function PermissionGate({ onGranted }: Props) {
 
   function armWaitingFallback() {
     if (waitingTimer.current) clearTimeout(waitingTimer.current);
-    // If AppState never fires (overlay picker), re-enable + re-check anyway.
     waitingTimer.current = setTimeout(() => {
       waitingTimer.current = null;
       setWaitingReturn(false);
@@ -132,15 +116,11 @@ export function PermissionGate({ onGranted }: Props) {
     }, 3000);
   }
 
-  // Fix #1: explicit storage-access button.
   async function handleAllow() {
     if (requesting || waitingReturn) return;
     setRequesting(true);
     try {
       if (isAndroid11Plus()) {
-        // Opens system settings; the ALWAYS-ON AppState listener above
-        // re-checks when the user comes back. Fix #4: arm a fallback so a
-        // missed AppState event can't leave the UI stuck (user kills app).
         setWaitingReturn(true);
         armWaitingFallback();
         try {
@@ -148,9 +128,6 @@ export function PermissionGate({ onGranted }: Props) {
         } catch {
           setWaitingReturn(false);
         }
-        // NOTE: do NOT re-check immediately here — the user hasn't acted yet
-        // (Settings is on screen). The AppState/fallback re-check handles it,
-        // which is what makes the grant "refresh instead of close".
       } else {
         const ok = await requestStoragePermission();
         setGranted(ok);
@@ -158,15 +135,10 @@ export function PermissionGate({ onGranted }: Props) {
         else await check();
       }
     } finally {
-      // On Android 11+ keep `requesting` false but leave `waitingReturn`
-      // spinner until AppState/fallback clears it.
-      if (!isAndroid11Plus()) setRequesting(false);
-      else setRequesting(false);
+      setRequesting(false);
     }
   }
 
-  // Fix #4: SAF folder picker stays inside the app (no Settings task-switch),
-  // so granting through here can never look like "the app closed".
   async function handlePickFolder() {
     if (pickingFolder || requesting) return;
     setPickingFolder(true);
@@ -176,7 +148,6 @@ export function PermissionGate({ onGranted }: Props) {
         await check();
       }
     } catch {
-      // picker cancelled — stay on the gate, don't close anything
     } finally {
       setPickingFolder(false);
     }
@@ -186,11 +157,6 @@ export function PermissionGate({ onGranted }: Props) {
 
   if (granted) return null;
 
-  // Buttons render IMMEDIATELY — even while `checking` is true — so the
-  // first page always shows the storage button on open. Previously this
-  // returned a blank spinner while checking, and the parent screen showed
-  // its own spinner first (double-gate loading), so no button was visible
-  // for seconds on first open.
   const busy = requesting || waitingReturn;
 
   return (
@@ -210,7 +176,6 @@ export function PermissionGate({ onGranted }: Props) {
         </View>
       ) : null}
 
-      {/* Fix #1: the explicit "ask for storage access" button */}
       <Pressable
         onPress={handleAllow}
         disabled={busy || pickingFolder}
@@ -224,7 +189,6 @@ export function PermissionGate({ onGranted }: Props) {
 
       <Text style={s.or}>or</Text>
 
-      {/* In-app fallback: never leaves the app, so it can't "close" it */}
       <Pressable
         onPress={handlePickFolder}
         disabled={busy || pickingFolder}
@@ -256,7 +220,6 @@ const s = StyleSheet.create({
     backgroundColor: THEME.colors.background,
     gap: 10,
   },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 32 },
   iconWrap: {
     width: 84,
     height: 84,
@@ -270,6 +233,8 @@ const s = StyleSheet.create({
   },
   title: { fontSize: 20, fontWeight: '800', color: THEME.colors.text, letterSpacing: -0.3 },
   sub: { fontSize: 13.5, color: THEME.colors.textSecondary, textAlign: 'center', lineHeight: 20, marginBottom: 8, paddingHorizontal: 8 },
+  checkingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
+  checkingText: { fontSize: 12, fontWeight: '700', color: THEME.colors.textSecondary },
   btn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -303,7 +268,5 @@ const s = StyleSheet.create({
     borderColor: THEME.colors.primary,
   },
   btnSecondaryText: { fontSize: 14, fontWeight: '800', color: THEME.colors.primary },
-  checkingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 2 },
-  checkingText: { fontSize: 12, fontWeight: '700', color: THEME.colors.textSecondary },
   hint: { fontSize: 12, color: THEME.colors.textSecondary, textAlign: 'center', marginTop: 8, paddingHorizontal: 16, lineHeight: 17 },
 });

@@ -189,7 +189,6 @@ export function PreviewModal(props: PreviewProps) {
         try { listRef.current?.scrollToIndex({ index: propIndex, animated: false }); } catch {}
       }, 50);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [propIndex]);
 
   useEffect(() => {

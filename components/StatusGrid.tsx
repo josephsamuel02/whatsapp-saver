@@ -28,21 +28,8 @@ type Props = {
   emptyText: string;
   refreshing?: boolean;
   onRefresh?: () => void;
-  /** Extra actions (e.g. re-pick folder) shown under the empty state. */
   emptyAction?: React.ReactNode;
 };
-
-function Skeleton() {
-  return (
-    <View style={s.skeletonWrap}>
-      {Array.from({ length: 6 }).map((_, i) => (
-        <View key={i} style={s.skeletonCell}>
-          <View style={s.skeletonShimmer} />
-        </View>
-      ))}
-    </View>
-  );
-}
 
 const GridItem = memo(function GridItem({
   item,
@@ -76,7 +63,6 @@ const GridItem = memo(function GridItem({
           return;
         }
       } catch {
-        // fall through to staged retry for content:// URIs
       }
       if (!isContentUri(item.uri)) {
         if (!cancelled) setThumbFailed(true);
@@ -258,10 +244,6 @@ export function StatusGrid({
   );
 }
 
-export function StatusGridSkeleton() {
-  return <Skeleton />;
-}
-
 const s = StyleSheet.create({
   cell: {
     width: ITEM,
@@ -344,7 +326,4 @@ const s = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: "800", color: THEME.colors.text, letterSpacing: -0.2 },
   emptySub: { fontSize: 13.5, color: THEME.colors.textSecondary, textAlign: "center", lineHeight: 20, paddingHorizontal: 8 },
   emptyActionWrap: { marginTop: 6, width: "100%", maxWidth: 320, gap: 8 },
-  skeletonWrap: { flexDirection: "row", flexWrap: "wrap", gap: GAP, padding: GAP },
-  skeletonCell: { width: ITEM, height: ITEM, borderRadius: 12, backgroundColor: "#E9EDEF", overflow: "hidden" },
-  skeletonShimmer: { flex: 1, backgroundColor: "#F0F2F5" },
 });

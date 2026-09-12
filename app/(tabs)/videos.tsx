@@ -123,9 +123,6 @@ export default function VideosScreen() {
 
   return (
     <View style={{ flex: 1, backgroundColor: THEME.colors.background }}>
-      {/* Show the gate immediately on first open (even while the access
-          check is still running) so the storage button is always on the
-          first page — never a blank spinner with no action. */}
       {!accessChecked || !hasAccess ? (
         <PermissionGate onGranted={refresh} />
       ) : (

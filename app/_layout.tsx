@@ -12,17 +12,13 @@ export default function RootLayout() {
   useEffect(() => {
     let mounted = true;
     async function init() {
-      // Light initialization - don't block on permissions, screens handle their own flows
-      // Just ensure MediaLibrary is warmed up so first picker is faster
       if (Platform.OS === "android") {
         try {
-          // Trigger permission state fetch (no request) so OS caches
           await MediaLibrary.getPermissionsAsync().catch(() => null);
         } catch {}
       }
       if (mounted) setReady(true);
     }
-    // Minimum splash duration for branding
     const t = setTimeout(init, 420);
     return () => { mounted = false; clearTimeout(t); };
   }, []);

@@ -4,7 +4,6 @@ import * as LegacyFS from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 
-// ─── Types ────────────────────────────────────────────────────────────────────
 export type MediaType = 'image' | 'video';
 export interface StatusFile {
   uri: string;
@@ -17,27 +16,18 @@ export interface StatusFile {
   source: string;
 }
 
-// ─── WhatsApp status folder paths ────────────────────────────────────────────
-// Covers official WhatsApp, WhatsApp Business, legacy paths, and mod variants
 const STATUS_PATHS: Array<{ path: string; label: string }> = [
-  // WhatsApp — Android 10+ scoped (most common on modern devices)
   { path: '/storage/emulated/0/Android/media/com.whatsapp/WhatsApp/Media/.Statuses', label: 'WhatsApp' },
-  // WhatsApp Business — Android 10+ scoped
   { path: '/storage/emulated/0/Android/media/com.whatsapp.w4b/WhatsApp Business/Media/.Statuses', label: 'WA Business' },
-  // Legacy WhatsApp (pre-Android 10 / old installs)
   { path: '/storage/emulated/0/WhatsApp/Media/.Statuses', label: 'WhatsApp' },
-  // Legacy WhatsApp Business
   { path: '/storage/emulated/0/WhatsApp Business/Media/.Statuses', label: 'WA Business' },
-  // sdcard alias (some OEMs)
   { path: '/sdcard/WhatsApp/Media/.Statuses', label: 'WhatsApp' },
   { path: '/sdcard/Android/media/com.whatsapp/WhatsApp/Media/.Statuses', label: 'WhatsApp' },
-  // GB/Yo/FM WhatsApp mods
   { path: '/storage/emulated/0/GBWhatsapp/Media/.Statuses', label: 'GBWhatsApp' },
   { path: '/storage/emulated/0/YoWhatsApp/Media/.Statuses', label: 'YoWhatsApp' },
   { path: '/storage/emulated/0/FMWhatsApp/Media/.Statuses', label: 'FMWhatsApp' },
 ];
 
-// ─── File Classification ──────────────────────────────────────────────────────
 const IMAGE_EXT = new Set(['.jpg', '.jpeg', '.png', '.webp', '.gif']);
 const VIDEO_EXT = new Set(['.mp4', '.3gp', '.mkv', '.mov', '.avi']);
 
@@ -53,21 +43,12 @@ function isIgnored(name: string) {
   return name.startsWith('.') || name === 'Thumbs.db';
 }
 
-/**
- * Every catch block below used to swallow errors silently and just return
- * an empty array — meaning a real scanning failure (bad metadata read, a
- * SecurityException, an API mismatch) looked EXACTLY like "no statuses
- * found". That makes "images/videos aren't showing up" impossible to
- * diagnose. Route every catch through this so real failures show up in
- * Metro/logcat during development instead of vanishing.
- */
 function devWarn(context: string, err?: unknown): void {
   if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.warn(`[statusService] ${context}`, err);
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 export function formatBytes(bytes: number): string {
   if (!bytes || bytes === 0) return '0 B';
   const k = 1024;
@@ -78,16 +59,9 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`;
 }
 
-/**
- * Normalize timestamps to milliseconds.
- * expo-file-system's legacy getInfoAsync returns seconds on some SDKs while
- * the new Directory/File API returns ms — mixing them breaks both sorting
- * (ms always "newer") and display (seconds render as Jan 1970).
- */
 export function normalizeMtime(t: number | null | undefined): number | null {
   if (t == null) return null;
   if (!Number.isFinite(t) || t <= 0) return null;
-  // Anything below 1e12 is seconds (or garbage) — convert to ms.
   if (t < 1_000_000_000_000) return Math.round(t * 1000);
   return Math.round(t);
 }
@@ -107,12 +81,8 @@ export function formatDate(timestamp: number | null): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// ─── Directory scanner ────────────────────────────────────────────────────────
 function scanDir(dirPath: string, label: string, filter?: MediaType): StatusFile[] {
   try {
-    // Paths like "WhatsApp Business" contain spaces — a raw file:// URI is
-    // invalid and Directory.exists would always be false. encodeURI keeps
-    // slashes intact while escaping spaces.
     const cleanPath = dirPath.replace(/^file:\/\//, '');
     const dir = new Directory(`file://${encodeURI(cleanPath)}`);
     if (!dir.exists) return [];
@@ -121,17 +91,12 @@ function scanDir(dirPath: string, label: string, filter?: MediaType): StatusFile
     try {
       items = dir.list();
     } catch (e) {
-      // dir.exists said true but list() still failed — that's a real
-      // permission/IO problem worth knowing about, not "folder is empty".
       devWarn(`scanDir: dir.list() threw for ${dirPath}`, e);
       return [];
     }
     const out: StatusFile[] = [];
 
     for (const item of items) {
-      // One bad entry (e.g. a metadata read that throws) must not take the
-      // whole folder's results down with it — previously an exception here
-      // would bubble to the outer catch and discard every file already found.
       try {
         if (!(item instanceof File)) continue;
         const name = item.name;
@@ -161,24 +126,10 @@ function scanDir(dirPath: string, label: string, filter?: MediaType): StatusFile
   }
 }
 
-// ─── Public API ───────────────────────────────────────────────────────────────
-/**
- * Scan all known WhatsApp status directories and return unique files.
- *
- * Hybrid strategy (Play-Store-compliant):
- *  1. Fast path — direct scan (needs MANAGE_EXTERNAL_STORAGE / sideloaded builds).
- *  2. SAF — Storage Access Framework persisted folder grants (user picks the
- *     `.Statuses` folder once). ALWAYS merged in, not only when direct finds
- *     nothing — otherwise a single stray file on the direct path would hide
- *     the whole SAF grant and the grid would look empty/wrong.
- */
 export async function listStatuses(filter?: MediaType): Promise<StatusFile[]> {
   if (Platform.OS !== 'android') return [];
 
   const all: StatusFile[] = [];
-  // Dedupe by lowercased file name. SAF getInfo can fail (size 0, mtime null)
-  // while the direct scan has real values — keying on name+size would then
-  // keep both copies. Direct results are pushed first so they win.
   const seen = new Set<string>();
   const push = (f: StatusFile) => {
     const key = f.name.toLowerCase();
@@ -192,31 +143,17 @@ export async function listStatuses(filter?: MediaType): Promise<StatusFile[]> {
     for (const f of files) push(f);
   }
 
-  // SAF fallback — ALWAYS merged (previously only when direct found nothing).
   try {
     const safFiles = await listSAFStatuses(filter);
     for (const f of safFiles) push(f);
   } catch (e) {
-    // SAF listing must never break the direct path
     devWarn('listStatuses: SAF merge failed', e);
   }
 
-  // Sort newest first
   all.sort((a, b) => (b.mtime ?? 0) - (a.mtime ?? 0));
   return all;
 }
 
-// ─── SAF listing (Play-Store-compliant fallback) ─────────────────────────────
-// The system picker often hides dot-folders, so users end up picking a PARENT
-// (…/Media or …/WhatsApp) instead of `.Statuses` itself. Listing must therefore
-// recurse a few levels and find statuses wherever they live under the grant.
-
-/**
- * Extract a real file name from an SAF document URI.
- * URIs look like: content://…/document/primary%3AAndroid%2Fmedia%2F…%2Fabc.jpg
- * Naively taking everything after ':' leaves "Android/media/…/abc.jpg" — still
- * a path, not a name. We must strip to the last '/' segment.
- */
 function extractSAFFileName(fileUri: string): string {
   try {
     const lastSegment = fileUri.split('/').pop() || fileUri;
@@ -226,7 +163,6 @@ function extractSAFFileName(fileUri: string): string {
     } catch {
       decoded = lastSegment;
     }
-    // decoded is like "primary:Android/media/…/abc.jpg"
     let name = decoded;
     if (name.includes(':')) {
       const parts = name.split(':');
@@ -244,15 +180,12 @@ function extractSAFFileName(fileUri: string): string {
 
 async function getSAFFileInfo(fileUri: string): Promise<{ size: number; mtime: number | null }> {
   const SAF = (LegacyFS as any)?.StorageAccessFramework;
-  // expo-file-system's SAF object has no getInfoAsync — try it if present,
-  // then fall back to the generic getInfoAsync which understands content://.
   try {
     if (typeof SAF?.getInfoAsync === 'function') {
       const info = await SAF.getInfoAsync(fileUri);
       if (info) return { size: info?.size ?? 0, mtime: normalizeMtime(info?.lastModified ?? info?.modificationTime) };
     }
   } catch {
-    // fall through
   }
   try {
     const info: any = await LegacyFS.getInfoAsync(fileUri);
@@ -263,13 +196,6 @@ async function getSAFFileInfo(fileUri: string): Promise<{ size: number; mtime: n
   }
 }
 
-/**
- * BUG FIX: sourceLabel used to be `depth === 0 ? 'WhatsApp' : 'WhatsApp'` —
- * both branches returned the same value, so every SAF-picked file was always
- * labeled "WhatsApp" even when the user picked the WhatsApp Business or a
- * mod's (.Statuses) folder. Derive the real label once per granted directory
- * and thread it through the recursion instead.
- */
 function labelForSAFUri(uri: string): string {
   const probe = (() => {
     try {
@@ -314,15 +240,12 @@ async function listSAFDirectory(
       try {
         const fileName = extractSAFFileName(entryUri);
 
-        // Recurse into subdirectories (user may have picked Media/WhatsApp
-        // instead of .Statuses because the picker hides dot-folders).
         if (depth < MAX_DEPTH && !classify(fileName)) {
           if (await isSAFDirectory(entryUri)) {
             const nested = await listSAFDirectory(entryUri, filter, depth + 1, label);
             files.push(...nested);
             continue;
           }
-          // Not a media file and not a readable dir — skip.
           continue;
         }
 
@@ -345,7 +268,7 @@ async function listSAFDirectory(
         });
       } catch (e) {
         devWarn(`listSAFDirectory: skipping unreadable entry in ${directoryUri}`, e);
-        continue; // skip unreadable entries
+        continue;
       }
     }
     return files;
@@ -372,8 +295,6 @@ async function listSAFStatuses(filter?: MediaType): Promise<StatusFile[]> {
       try {
         files = await listSAFDirectory(dirUri, filter, 0, label);
       } catch (e) {
-        // One dead grant (revoked folder, deleted path) must not kill the
-        // other grants.
         devWarn(`listSAFStatuses: grant failed, skipping: ${dirUri}`, e);
         continue;
       }
@@ -390,38 +311,6 @@ async function listSAFStatuses(filter?: MediaType): Promise<StatusFile[]> {
   }
 }
 
-// ─── Diagnostics ─────────────────────────────────────────────────────────────
-// Answers "I picked the right folder — why is the grid empty?" with ground
-// truth instead of guesses. Run on demand from Settings → Diagnostics.
-export interface DirectProbe {
-  path: string;
-  label: string;
-  exists: boolean;
-  entries: number;
-  media: number;
-  error?: string;
-}
-
-export interface SAFProbe {
-  /** Raw granted URI (truncated for display by callers). */
-  uri: string;
-  /** Human-readable form of the granted folder, e.g. "…/WhatsApp/Media/.Statuses". */
-  folder: string;
-  entries: number;
-  files: number;
-  samples: string[];
-  error?: string;
-}
-
-export interface AccessDiagnosis {
-  directAccess: boolean;
-  directProbes: DirectProbe[];
-  safGrants: SAFProbe[];
-  totalImages: number;
-  totalVideos: number;
-}
-
-/** Best-effort decode of an SAF tree/document URI into a readable path. */
 export function decodeSAFUri(uri: string): string {
   try {
     const last = uri.split('/').pop() || uri;
@@ -431,7 +320,6 @@ export function decodeSAFUri(uri: string): string {
     } catch {
       decoded = last;
     }
-    // "primary:Android/media/…/.Statuses" or "tree/primary:…"
     const afterColon = decoded.includes(':')
       ? decoded.slice(decoded.lastIndexOf(':') + 1)
       : decoded;
@@ -441,105 +329,12 @@ export function decodeSAFUri(uri: string): string {
   }
 }
 
-export async function diagnoseAccess(): Promise<AccessDiagnosis> {
-  const directProbes: DirectProbe[] = [];
-  for (const { path, label } of STATUS_PATHS) {
-    try {
-      const clean = path.replace(/^file:\/\//, '');
-      const dir = new Directory(`file://${encodeURI(clean)}`);
-      if (!dir.exists) {
-        directProbes.push({ path, label, exists: false, entries: 0, media: 0 });
-        continue;
-      }
-      try {
-        const items = dir.list();
-        let media = 0;
-        for (const it of items) {
-          if (!(it instanceof File)) continue;
-          if (isIgnored(it.name)) continue;
-          if (classify(it.name)) media++;
-        }
-        directProbes.push({ path, label, exists: true, entries: items.length, media });
-      } catch (e: any) {
-        directProbes.push({ path, label, exists: true, entries: 0, media: 0, error: 'listed but not readable (permission denied?)' });
-      }
-    } catch (e: any) {
-      directProbes.push({ path, label, exists: false, entries: 0, media: 0, error: e?.message ?? 'probe failed' });
-    }
-  }
-
-  const safGrants: SAFProbe[] = [];
-  try {
-    const SAF = (LegacyFS as any)?.StorageAccessFramework;
-    const permissions: any[] = SAF?.getUriPermissionsAsync ? await SAF.getUriPermissionsAsync() : [];
-    for (const p of Array.isArray(permissions) ? permissions : []) {
-      const dirUri: string | undefined = p.directoryUri || p.uri;
-      if (!dirUri) continue;
-      const folder = decodeSAFUri(dirUri);
-      try {
-        const entries: string[] = await SAF.readDirectoryAsync(dirUri);
-        const samples = (entries || []).slice(0, 5).map((e) => {
-          try {
-            return extractSAFFileName(e) || decodeSAFUri(e);
-          } catch {
-            return '(unreadable entry)';
-          }
-        });
-        let files = 0;
-        try {
-          files = (await listSAFDirectory(dirUri, undefined)).length;
-        } catch {
-          files = 0;
-        }
-        safGrants.push({ uri: dirUri, folder, entries: (entries || []).length, files, samples });
-      } catch (e: any) {
-        safGrants.push({ uri: dirUri, folder, entries: 0, files: 0, samples: [], error: e?.message ?? 'could not read granted folder' });
-      }
-    }
-  } catch {
-    // SAF unavailable — grants list stays empty
-  }
-
-  let totalImages = 0;
-  let totalVideos = 0;
-  try {
-    totalImages = (await listStatuses('image')).length;
-  } catch {
-    totalImages = 0;
-  }
-  try {
-    totalVideos = (await listStatuses('video')).length;
-  } catch {
-    totalVideos = 0;
-  }
-
-  let directAccess = false;
-  try {
-    const { hasStoragePermission } = await import('./storageAccess');
-    directAccess = await hasStoragePermission();
-  } catch {
-    directAccess = false;
-  }
-
-  return { directAccess, directProbes, safGrants, totalImages, totalVideos };
-}
-
-// ─── File preparation (copy to cache so MediaLibrary / Sharing can use it) ───
-// content:// (SAF) URIs can't be displayed by <Image>, decoded by
-// expo-video-thumbnails, or played by expo-video reliably. Staging them to a
-// file:// cache path first fixes black cells / blank previews.
 export function isContentUri(uri: string): boolean {
   return typeof uri === 'string' && uri.startsWith('content://');
 }
 
 const stagedCache = new Map<string, string>();
 
-/**
- * Copy a content:// URI to app cache once per uri; file:// passes through.
- * The destination name is deterministic (hash + safe name) so re-staging the
- * same status overwrites instead of leaking a new file every time, and
- * best-effort pruning keeps the preview cache from growing forever.
- */
 export async function ensureLocalUri(uri: string, name: string): Promise<string> {
   if (!isContentUri(uri)) return uri;
   const hit = stagedCache.get(uri);
@@ -567,7 +362,6 @@ export async function ensureLocalUri(uri: string, name: string): Promise<string>
   return dest;
 }
 
-/** Keep only the newest `keep` files in a cache dir — never let staging grow unbounded. */
 async function pruneCacheDir(cacheDir: string, keep: number): Promise<void> {
   try {
     const names = await LegacyFS.readDirectoryAsync(cacheDir);
@@ -587,11 +381,9 @@ async function pruneCacheDir(cacheDir: string, keep: number): Promise<void> {
       try {
         await LegacyFS.deleteAsync(cacheDir + e.name, { idempotent: true });
       } catch {
-        // best effort
       }
     }
   } catch {
-    // best effort
   }
 }
 
@@ -604,10 +396,6 @@ function hashString(s: string): number {
 }
 
 async function prepareFile(uri: string, name: string): Promise<string> {
-  // Always stage through our cache: isolates the save/share from WhatsApp
-  // deleting the source file mid-operation, and converts SAF content:// URIs
-  // (which MediaLibrary/Sharing can't consume directly) into file:// paths.
-  // LegacyFS.copyAsync supports file://, content:// and SAF URIs as source.
   const base = LegacyFS.cacheDirectory ?? '';
   if (!base) throw new Error('Cache directory unavailable');
   const cacheDir = `${base}status_saver/`;
@@ -626,11 +414,9 @@ async function deleteSilent(uri: string): Promise<void> {
   try {
     await LegacyFS.deleteAsync(uri, { idempotent: true });
   } catch {
-    // temp-file cleanup must never fail the save/share itself
   }
 }
 
-// ─── Save to gallery ─────────────────────────────────────────────────────────
 export async function saveToGallery(fileUri: string, fileName: string): Promise<void> {
   const perm = await MediaLibrary.requestPermissionsAsync();
   if (!perm.granted) throw new Error('Gallery permission denied. Go to Settings and allow storage access.');
@@ -644,48 +430,12 @@ export async function saveToGallery(fileUri: string, fileName: string): Promise<
       if (album) await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
       else await MediaLibrary.createAlbumAsync('Status Saver', asset, false);
     } catch {
-      // asset is still saved even if album creation fails on some OEMs
     }
   } finally {
     await deleteSilent(local);
   }
 }
 
-export async function saveMultipleToGallery(files: StatusFile[]): Promise<{ saved: number; errors: number }> {
-  // Request once up-front so a bulk save can't spam the system dialog per file.
-  try {
-    const perm = await MediaLibrary.getPermissionsAsync();
-    if (!perm.granted) {
-      const req = await MediaLibrary.requestPermissionsAsync();
-      if (!req.granted) return { saved: 0, errors: files.length };
-    }
-  } catch {
-    return { saved: 0, errors: files.length };
-  }
-  let saved = 0, errors = 0;
-  for (const f of files) {
-    try {
-      const local = await prepareFile(f.uri, f.name);
-      try {
-        const asset = await MediaLibrary.createAssetAsync(local);
-        try {
-          const album = await MediaLibrary.getAlbumAsync('Status Saver');
-          if (album) await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
-          else await MediaLibrary.createAlbumAsync('Status Saver', asset, false);
-        } catch {
-          // asset saved even if album step fails
-        }
-        saved++;
-      } finally {
-        await deleteSilent(local);
-      }
-    }
-    catch { errors++; }
-  }
-  return { saved, errors };
-}
-
-// ─── Share ────────────────────────────────────────────────────────────────────
 export async function shareFile(fileUri: string, fileName: string): Promise<void> {
   if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
   const local = await prepareFile(fileUri, fileName);
@@ -705,17 +455,6 @@ export async function shareToWhatsApp(
   const mimeType = /\.(mp4|mkv|avi|mov|3gp)$/i.test(fileName) ? 'video/*' : 'image/*';
   const business = isBusinessSource(sourceLabel, source);
 
-  // Fix #3: the old code used IntentLauncher.openApplication(targetPackage),
-  // which just cold-opens WhatsApp with NO file attached — so there is no
-  // contact picker and no way to send the media. expo-intent-launcher also
-  // can't deliver EXTRA_STREAM (it only sends String extras, and packageName
-  // is ignored without className), so ACTION_SEND through it can never work.
-  //
-  // Correct Expo flow (what other status-saver apps do): stage to a file://
-  // cache path and open the SYSTEM share sheet via Sharing.shareAsync. The
-  // user taps WhatsApp / WhatsApp Business in the sheet, and WhatsApp then
-  // opens WITH the media attached + its own contact/group picker — "select
-  // who you want to send it to". No native module / FileProvider code needed.
   const local = await prepareFile(fileUri, fileName);
   try {
     if (!(await Sharing.isAvailableAsync())) throw new Error('Sharing not available on this device');
@@ -728,7 +467,6 @@ export async function shareToWhatsApp(
   }
 }
 
-/** True if the status came from WhatsApp Business (vs regular WhatsApp). */
 export function isBusinessSource(sourceLabel?: string, source?: string): boolean {
   const probe = `${sourceLabel ?? ''} ${source ?? ''}`;
   return /business|w4b/i.test(probe);

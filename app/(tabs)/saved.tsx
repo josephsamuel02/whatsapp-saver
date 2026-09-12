@@ -166,7 +166,7 @@ export default function SavedScreen() {
       if (!album) { if (mounted.current) setAssets([]); return; }
       const res = await (MediaLibrary as any).getAssetsAsync({ album, sortBy: ["creationTime"], first: 200, mediaType: ["photo", "video"] });
       if (mounted.current) setAssets(res.assets);
-    } catch (e) { /* ignore */ }
+    } catch (e) { }
     finally { if (mounted.current) { setLoading(false); setRefreshing(false); } }
   }, []);
 

@@ -11,7 +11,7 @@ export default function AboutScreen() {
       <View style={s.card}>
         <Text style={s.cardTitle}>About Us</Text>
         <Text style={s.secBody}>
-          Status Saver for WhatsApp • v1.1.0{"\n"}Not affiliated with WhatsApp
+          Status Saver for WhatsApp • v1.1.1{"\n"}Not affiliated with WhatsApp
           or Meta Platforms, Inc. Only save statuses with the poster's
           permission.
         </Text>

@@ -98,9 +98,6 @@ export default function SettingsScreen() {
       const lower = (uris || []).map((u) => {
         try { return decodeURIComponent(u).toLowerCase(); } catch { return u.toLowerCase(); }
       });
-      // Fix #2: track each folder separately instead of marking both "On"
-      // for one generic grant. A generic/parent grant no longer maps to both —
-      // each row is only On when ITS OWN folder was granted.
       const waUri = (uris || []).find((u, i) => isWaUri(lower[i]));
       const bizUri = (uris || []).find((u, i) => isBizUri(lower[i]));
       setWaFolder(!!waUri);
@@ -138,14 +135,12 @@ export default function SettingsScreen() {
     if (busyKey) return;
     setBusyKey(kind);
     try {
-      // Fix #2: hint the picker at the right folder (wa vs w4b) so the two
-      // rows can't silently end up on the same directory.
       const { granted, uri } = await requestSAFPermission(kind);
       if (!granted) return;
       await load();
       if (uri) {
         let decoded = uri;
-        try { decoded = decodeURIComponent(uri).toLowerCase(); } catch { /* keep raw */ }
+        try { decoded = decodeURIComponent(uri).toLowerCase(); } catch { }
         const pickedBiz = isBizUri(decoded);
         const pickedWa = isWaUri(decoded);
         const expected = kind === "biz"
@@ -164,7 +159,6 @@ export default function SettingsScreen() {
             [{ text: "OK" }]
           );
         }
-        // Warn if both rows now resolve to the same grant.
         try {
           const uris = await getGrantedSAFUris();
           const lowers = uris.map((u) => {
@@ -183,7 +177,7 @@ export default function SettingsScreen() {
               );
             }
           }
-        } catch { /* validation only */ }
+        } catch { }
       }
     } finally {
       setBusyKey(null);

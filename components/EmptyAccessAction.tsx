@@ -4,13 +4,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { THEME } from '../constants/theme';
 import { openAllFilesAccessSettings, requestSAFPermission } from '../lib/storageAccess';
 
-/**
- * Fallback access buttons for the empty grid.
- * Covers the case where the access check said "granted" (or the .Statuses
- * folder is genuinely empty) — the first page would otherwise show "No
- * statuses yet" with NO button to fix access. This guarantees a storage
- * button is always reachable from the first page.
- */
 export function EmptyAccessAction({ onChanged }: { onChanged?: () => void }) {
   const [busy, setBusy] = useState(false);
 
@@ -21,7 +14,6 @@ export function EmptyAccessAction({ onChanged }: { onChanged?: () => void }) {
       const r = await requestSAFPermission();
       if (r.granted) onChanged?.();
     } catch {
-      // picker cancelled — stay put
     } finally {
       setBusy(false);
     }
@@ -31,7 +23,6 @@ export function EmptyAccessAction({ onChanged }: { onChanged?: () => void }) {
     try {
       await openAllFilesAccessSettings();
     } catch {
-      // ignore — user can retry
     }
   }
 
